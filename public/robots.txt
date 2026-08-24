@@ -1,0 +1,18 @@
+# AlMulhim Travel - robots.txt
+# Optimized for crawl budget protection
+
+User-agent: *
+Allow: /
+
+# Block transactional/utility pages (no SEO value)
+Disallow: /checkout
+Disallow: /flight-checkout
+Disallow: /booking-success
+Disallow: /redirect
+Disallow: /manage-booking
+Disallow: /seat-selection
+Disallow: /compare-hotels
+Disallow: /api/
+
+# Dynamic sitemap (generated from database)
+Sitemap: https://almulhimtravel.com/sitemap.xml

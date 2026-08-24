@@ -1,0 +1,39 @@
+{
+  "name": "almulhim-travel",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^29.1.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@duffel/components": "^3.16.1",
+    "@tailwindcss/vite": "^4.1.18",
+    "@vitejs/plugin-react": "^5.1.2",
+    "axios": "^1.13.2",
+    "framer-motion": "^12.23.26",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-helmet-async": "^2.0.5",
+    "react-hot-toast": "^2.6.0",
+    "react-leaflet": "^5.0.0",
+    "react-router-dom": "^7.11.0",
+    "tailwindcss": "^4.1.18",
+    "tailwindcss-animate": "^1.0.7"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "almullhimtravel-admin-automation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:browsers": "playwright install chromium",
+    "update:prices": "node scripts/update-prices.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.51.0"
+  }
+}

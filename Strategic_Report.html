@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>تحليلات الكول سنتر والمساعد الذكي</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Rubik -->
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Rubik', 'sans-serif'] },
+                    colors: {
+                        brand: { 500: '#eab308', 600: '#ca8a04', 900: '#713f12' },
+                        dark: { 900: '#0f172a', 800: '#1e293b', 700: '#334155' },
+                        success: { 500: '#10b981' },
+                        info: { 500: '#3b82f6' },
+                        danger: { 500: '#ef4444' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; -webkit-tap-highlight-color: transparent; }
+        .dashboard-card { background-color: #1e293b; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+        .stat-value { font-family: 'Rubik', sans-serif; font-weight: 800; }
+        @media (min-width: 768px) {
+            ::-webkit-scrollbar { width: 6px; }
+            ::-webkit-scrollbar-track { background: #0f172a; }
+            ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        }
+    </style>
+</head>
+<body class="antialiased pb-10">
+
+    <!-- Mobile Header -->
+    <header class="bg-dark-800 border-b border-dark-700 sticky top-0 z-50 shadow-md">
+        <div class="px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3 space-x-reverse">
+                <div class="bg-brand-500 text-dark-900 p-1.5 rounded flex items-center justify-center h-8 w-8">
+                    <i class="fas fa-plane-departure text-4xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-[20px] font-bold text-white tracking-wide">وكالة الملحم للسياحة</h1>
+                    <p class="text-[16px] font-medium text-gray-300">التقرير الإستراتيجي | لوحة التحكم</p>
+                </div>
+            </div>
+            <div>
+                <span class="inline-flex items-center px-2 py-1 rounded text-[16px] font-bold bg-dark-900 text-gray-200 border border-dark-700">
+                    <i class="fas fa-lock ml-1 text-brand-500"></i> سري للإدارة
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="w-full max-w-3xl mx-auto px-4 mt-5 space-y-6">
+        
+        <!-- Executive Summary -->
+        <section class="dashboard-card p-6 border-t-2 border-brand-500">
+            <h2 class="text-4xl font-bold mb-4 text-white flex items-center border-b border-dark-700 pb-2">
+                <i class="fas fa-chart-pie text-brand-500 ml-2"></i> الملخص التنفيذي
+            </h2>
+            <ul class="space-y-4 mb-4">
+                <li class="flex items-start text-[20px] font-medium text-gray-200">
+                    <i class="fas fa-circle text-[8px] text-brand-500 ml-2 mt-1.5"></i>
+                    <span><strong>المشكلة:</strong> هدر كبير في الميزانيات وضياع آلاف العملاء.</span>
+                </li>
+                <li class="flex items-start text-[20px] font-medium text-gray-200">
+                    <i class="fas fa-circle text-[8px] text-brand-500 ml-2 mt-1.5"></i>
+                    <span><strong>السبب:</strong> التلاعب للتهرب من العمل، الكسل في الأداء، والبقاء في "منطقة الراحة".</span>
+                </li>
+                <li class="flex items-start text-[20px] font-medium text-gray-200">
+                    <i class="fas fa-circle text-[8px] text-brand-500 ml-2 mt-1.5"></i>
+                    <span><strong>الحل التقني:</strong> البوت أثبت نجاحه بفلترة <strong class="text-success-500">70.5%</strong> من العملاء آلياً.</span>
+                </li>
+                <li class="flex items-start text-[20px] font-medium text-gray-200">
+                    <i class="fas fa-circle text-[8px] text-brand-500 ml-2 mt-1.5"></i>
+                    <span><strong>المرحلة القادمة (عاجل):</strong> بربط البوت بمزودي الخدمات (Hotelbeds, TBO, Rathwak)، سينهي 95% من المحادثة ويتبقى للموظف تأكيد الدفع فقط.</span>
+                </li>
+            </ul>
+
+            <div class="bg-dark-900 border border-dark-700 p-4 rounded-lg mb-4">
+                <p class="text-[18px] font-semibold text-white mb-3"><i class="fas fa-robot text-brand-500 ml-2"></i> نماذج حية لذكاء البوت في التجاوب كـ موظف بشري:</p>
+                <div class="flex flex-wrap gap-3">
+                    <a href="https://almulhimagency.myfreshworks.com/crm/messaging/a/1046781151020932/inbox/0/104631/conversation/1153337874036797" target="_blank" class="bg-dark-800 hover:bg-brand-500 hover:text-dark-900 text-brand-500 font-bold text-[16px] px-4 py-2 rounded border border-brand-500/30 transition-all">محادثة 1 <i class="fas fa-external-link-alt text-[12px] mr-1"></i></a>
+                    <a href="https://almulhimagency.myfreshworks.com/crm/messaging/a/1046781151020932/inbox/0/104631/conversation/1153193185505691" target="_blank" class="bg-dark-800 hover:bg-brand-500 hover:text-dark-900 text-brand-500 font-bold text-[16px] px-4 py-2 rounded border border-brand-500/30 transition-all">محادثة 2 <i class="fas fa-external-link-alt text-[12px] mr-1"></i></a>
+                    <a href="https://almulhimagency.myfreshworks.com/crm/messaging/a/1046781151020932/inbox/0/104631/conversation/1153207219789398" target="_blank" class="bg-dark-800 hover:bg-brand-500 hover:text-dark-900 text-brand-500 font-bold text-[16px] px-4 py-2 rounded border border-brand-500/30 transition-all">محادثة 3 <i class="fas fa-external-link-alt text-[12px] mr-1"></i></a>
+                    <a href="https://almulhimagency.myfreshworks.com/crm/messaging/a/1046781151020932/inbox/0/104631/conversation/1153231581109383" target="_blank" class="bg-dark-800 hover:bg-brand-500 hover:text-dark-900 text-brand-500 font-bold text-[16px] px-4 py-2 rounded border border-brand-500/30 transition-all">محادثة 4 <i class="fas fa-external-link-alt text-[12px] mr-1"></i></a>
+                    <a href="https://almulhimagency.myfreshworks.com/crm/messaging/a/1046781151020932/inbox/0/104631/conversation/1153246111971112" target="_blank" class="bg-dark-800 hover:bg-brand-500 hover:text-dark-900 text-brand-500 font-bold text-[16px] px-4 py-2 rounded border border-brand-500/30 transition-all">محادثة 5 <i class="fas fa-external-link-alt text-[12px] mr-1"></i></a>
+                </div>
+            </div>
+
+            <div class="bg-danger-500/10 border border-danger-500/20 p-6 rounded-lg">
+                <p class="text-[18px] font-semibold text-danger-100 flex items-start">
+                    <i class="fas fa-exclamation-triangle text-danger-500 ml-2 mt-1"></i>
+                    <span class="leading-relaxed">هذا الإهمال يهدر استثماراتنا: سوشيال ميديا، ويب سايت، بوت و AI.</span>
+                </p>
+            </div>
+        </section>
+
+        <!-- Team Performance Assessment -->
+        <section class="dashboard-card p-6 border-t-2 border-brand-500">
+            <h3 class="text-4xl font-bold mb-4 text-white flex items-center border-b border-dark-700 pb-2">
+                <i class="fas fa-users-cog text-brand-500 ml-2"></i> تقييم أداء الفريق (تحليل أساليب العمل)
+            </h3>
+            
+            <p class="text-[20px] font-medium text-gray-200 mb-4">
+                <i class="fas fa-info-circle text-brand-500 ml-1"></i> <strong class="text-white">السبب الرئيسي للخسائر:</strong> سوء إدارة الوقت، وضعف المتابعة.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-5 text-center">
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <p class="text-[18px] font-semibold text-gray-300 mb-4">عملاء تم تجاهلهم (آخر 7 أيام)</p>
+                    <p class="text-5xl stat-value text-danger-500 mb-4">710</p>
+                    <p class="text-[16px] font-bold text-danger-400">يمثلون 79% هدر من إجمالي 895 عميل!</p>
+                </div>
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <p class="text-[18px] font-semibold text-gray-300 mb-4">عملاء تم تجاهلهم (آخر سنة)</p>
+                    <p class="text-5xl stat-value text-danger-500 mb-4">6,921</p>
+                    <p class="text-[16px] font-bold text-danger-400">يمثلون 65% هدر من إجمالي 10,647 عميل!</p>
+                </div>
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <p class="text-[18px] font-semibold text-gray-300 mb-4">معدل الرد المثالي</p>
+                    <p class="text-5xl stat-value text-danger-500 mb-4">&lt; 1%</p>
+                    <p class="text-[16px] font-bold text-danger-400">أقل من 1% فقط تم الرد عليهم في الوقت المناسب!</p>
+                </div>
+            </div>
+
+            <ul class="space-y-4">
+                <li class="flex flex-col bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <div class="flex items-center mb-4 border-b border-dark-700 pb-2">
+                        <i class="fas fa-user-tie text-info-500 ml-2 text-[20px]"></i>
+                        <span class="text-[20px] text-white font-bold">حسن زكي</span>
+                    </div>
+                    <div class="space-y-4 mt-2">
+                        <p class="text-[18px] font-medium text-gray-300 leading-relaxed flex items-start">
+                            <i class="fas fa-check-circle text-success-500 mt-1 ml-2"></i>
+                            <span><strong class="text-success-500">نقطة تميز:</strong> بناء علاقة ودية والاهتمام بالتفاصيل.</span>
+                        </p>
+                        <p class="text-[18px] font-medium text-gray-300 leading-relaxed flex items-start">
+                            <i class="fas fa-exclamation-circle text-danger-500 mt-1 ml-2"></i>
+                            <span><strong class="text-danger-400">التحدي:</strong> إسهاب مبالغ يعطل باقي العملاء. (متوسط الرد: <strong class="text-danger-500">ساعة و 36 دقيقة</strong>).</span>
+                        </p>
+                    </div>
+                </li>
+                
+                <li class="flex flex-col bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <div class="flex items-center mb-4 border-b border-dark-700 pb-2">
+                        <i class="fas fa-user-tie text-info-500 ml-2 text-[20px]"></i>
+                        <span class="text-[20px] text-white font-bold">رامي عبد الله</span>
+                    </div>
+                    <div class="space-y-4 mt-2">
+                        <p class="text-[18px] font-medium text-gray-300 leading-relaxed flex items-start">
+                            <i class="fas fa-check-circle text-success-500 mt-1 ml-2"></i>
+                            <span><strong class="text-success-500">نقطة تميز:</strong> سرعة الاستلام والتجاوب اللحظي.</span>
+                        </p>
+                        <p class="text-[18px] font-medium text-gray-300 leading-relaxed flex items-start">
+                            <i class="fas fa-exclamation-circle text-danger-500 mt-1 ml-2"></i>
+                            <span><strong class="text-danger-400">التحدي:</strong> تهرب متعمد بزر (Pending). (تراكم <strong class="text-brand-500">101 محادثة</strong> بلا إغلاق).</span>
+                        </p>
+                    </div>
+                </li>
+            </ul>
+        </section>
+
+        <!-- Managerial Intervention -->
+        <section class="dashboard-card p-6 border-r-2 border-brand-500">
+            <h4 class="text-[20px] font-bold text-white mb-4 flex items-center">
+                <i class="fas fa-tasks text-brand-500 ml-2"></i> إدارة وتوجيه طوابير العمل (إشراف إداري):
+            </h4>
+            <ul class="text-[16px] font-medium text-gray-300 space-y-4 pr-2">
+                <li><i class="fas fa-arrow-left text-success-500 ml-1"></i> <strong class="text-white">فريق المبيعات:</strong> توجيه (حسن ورامي) حصرياً لطابور المبيعات للتركيز التام.</li>
+                <li><i class="fas fa-arrow-left text-success-500 ml-1"></i> <strong class="text-white">التدخل السريع:</strong> مراقبتي لطوابير الدعم والمتابعة (مع البوت) على مدار اليوم.</li>
+                <li><i class="fas fa-arrow-left text-success-500 ml-1"></i> <strong class="text-white">تخليص الخدمات:</strong> الرد الفوري على (التأشيرات والانتقالات) وتوجيه المحادثات لعدم تعطل العملاء.</li>
+            </ul>
+        </section>
+
+        <!-- Business Context: The Funnel -->
+        <section class="dashboard-card p-6">
+            <h3 class="text-4xl font-bold mb-4 text-white flex items-center border-b border-dark-700 pb-2">
+                <i class="fas fa-chart-line text-brand-500 ml-2"></i> مسار المبيعات وحقيقة "ضغط العمل"
+            </h3>
+            <div class="space-y-4">
+                <ul class="text-[20px] font-medium text-gray-200 space-y-4 mb-4">
+                    <li><i class="fas fa-caret-left text-brand-500 ml-2"></i> <strong class="text-brand-500">80%</strong> ينسحبون فور معرفة السعر (لا يستهلكون وقتاً).</li>
+                    <li><i class="fas fa-caret-left text-brand-500 ml-2"></i> <strong class="text-success-500">20%</strong> فقط يناقشون بعمق.</li>
+                </ul>
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700 flex items-start">
+                    <i class="fas fa-lightbulb text-brand-500 mt-1 ml-2 text-4xl"></i>
+                    <div class="text-[20px] font-semibold text-gray-200">
+                        <strong class="text-white mb-3 block">الخلاصة:</strong>
+                        <ul class="space-y-3 text-[18px]">
+                            <li>- لا يوجد "ضغط عمل" حقيقي. البطء متعمد.</li>
+                            <li>- <strong class="text-brand-500 border-b border-brand-500/50">الفريق الحالي يكفي لتغطية الشغل بالكامل بسهولة.</strong></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Manipulation Exposed -->
+        <section class="dashboard-card p-6 border-t-2 border-info-500">
+            <h3 class="text-4xl font-bold mb-4 text-white flex items-center border-b border-dark-700 pb-2">
+                <i class="fas fa-search-dollar text-info-500 ml-2"></i> كشف التلاعب في إعدادات النظام
+            </h3>
+            
+            <p class="text-[18px] font-medium text-gray-200 mb-4">
+                <i class="fas fa-exclamation-triangle text-danger-500 ml-1"></i> تم اكتشاف تلاعب في إعدادات (IntelliAssign) للتهرب من العمل:
+            </p>
+
+            <div class="grid grid-cols-1 gap-6 mb-4">
+                
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-user-shield text-info-500 ml-2"></i>
+                        <strong class="text-white text-[18px]">1. التلاعب بكوتة المحادثات</strong>
+                    </div>
+                    <ul class="text-[16px] font-medium text-gray-300 space-y-4 pr-6">
+                        <li><span class="text-danger-500 font-bold ml-1">الخطأ:</span> الحد الأقصى 10 محادثات فقط لوقف استلام عملاء جدد.</li>
+                        <li><span class="text-success-500 font-bold ml-1">التصحيح:</span> تم الرفع إجبارياً إلى <strong class="text-white">30 محادثة</strong>.</li>
+                    </ul>
+                </div>
+
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-clock text-info-500 ml-2"></i>
+                        <strong class="text-white text-[18px]">2. تمديد وقت الخمول (Idle)</strong>
+                    </div>
+                    <ul class="text-[16px] font-medium text-gray-300 space-y-4 pr-6">
+                        <li><span class="text-danger-500 font-bold ml-1">الخطأ:</span> النظام ينتظر 60 دقيقة قبل سحب المحادثة من الموظف الغائب.</li>
+                        <li><span class="text-success-500 font-bold ml-1">التصحيح:</span> تقليص المدة إلى <strong class="text-white">20 دقيقة</strong> فقط.</li>
+                    </ul>
+                </div>
+
+                <div class="bg-dark-900 p-6 rounded-lg border border-dark-700">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-hourglass-half text-info-500 ml-2"></i>
+                        <strong class="text-white text-[18px]">3. تجميد طابور العملاء</strong>
+                    </div>
+                    <ul class="text-[16px] font-medium text-gray-300 space-y-4 pr-6">
+                        <li><span class="text-danger-500 font-bold ml-1">الخطأ:</span> بقاء المحادثة معلقة لـ 1380 دقيقة (23 ساعة) لملء الكوتة بلا عمل.</li>
+                        <li><span class="text-success-500 font-bold ml-1">التصحيح:</span> تخفيض الوقت لغلق المحادثات الميتة وإدخال عملاء جدد.</li>
+                    </ul>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Disciplinary Recommendation -->
+        <section class="dashboard-card p-6 border-2 border-brand-500/40 shadow-lg shadow-brand-500/10">
+            <h3 class="text-4xl font-bold mb-4 text-brand-500 flex items-center border-b border-dark-700 pb-2">
+                <i class="fas fa-gavel ml-2"></i> توصيات إدارية يُرجى النظر فيها
+            </h3>
+            <div class="bg-dark-900 p-6 rounded-lg border border-dark-700 space-y-4">
+                
+                <div class="border-b border-dark-700 pb-3">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-ban text-danger-500 ml-2 text-[20px]"></i>
+                        <strong class="text-white text-[20px]">تأجيل التوظيف مؤقتاً</strong>
+                    </div>
+                    <ul class="text-[18px] font-medium text-gray-300 space-y-4 pr-6 leading-relaxed">
+                        <li><span class="text-brand-500 ml-1">-</span> لسنا بحاجة لموظف جديد الآن.</li>
+                        <li><span class="text-brand-500 ml-1">-</span> الأولوية لضبط النظام وتحسين الأداء الحالي.</li>
+                        <li><span class="text-brand-500 ml-1">-</span> التوظيف لاحقاً ليدخل الموظف في منظومة منضبطة.</li>
+                    </ul>
+                </div>
+
+                <div class="border-b border-dark-700 pb-3">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-file-invoice-dollar text-danger-500 ml-2 text-[20px]"></i>
+                        <strong class="text-white text-[20px]">توقيع جزاءات مالية</strong>
+                    </div>
+                    <ul class="text-[18px] font-medium text-gray-300 space-y-4 pr-6 leading-relaxed">
+                        <li><span class="text-brand-500 ml-1">-</span> خصم من الراتب أو العمولة للمقصرين.</li>
+                        <li><span class="text-brand-500 ml-1">-</span> تأخير الرد لساعات تضييع صريح لموارد الشركة.</li>
+                    </ul>
+                </div>
+
+                <div>
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-percent text-success-500 ml-2 text-[20px]"></i>
+                        <strong class="text-white text-[20px]">ربط الراتب بالأداء</strong>
+                    </div>
+                    <ul class="text-[18px] font-medium text-gray-300 space-y-4 pr-6 leading-relaxed">
+                        <li><span class="text-brand-500 ml-1">-</span> العمولات مشروطة بتحقيق التارجت.</li>
+                        <li><span class="text-brand-500 ml-1">-</span> الالتزام التام بسرعة الرد (SLA).</li>
+                    </ul>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="text-center py-6 mt-4">
+        <p class="text-[16px] font-medium text-gray-500">تم إنشاؤه آلياً | وكالة الملحم للسياحة &copy; 2026</p>
+    </footer>
+
+</body>
+</html>

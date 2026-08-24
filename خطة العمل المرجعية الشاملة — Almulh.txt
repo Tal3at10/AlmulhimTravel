@@ -1,0 +1,756 @@
+خطة العمل المرجعية الشاملة — Almulhim Travel
+1. ملخص تنفيذي
+الميزة المطلوبة — Agent Bidding & Automated Comparison — موجودة بالفعل داخل خدمة VoucherPro. إذن الهدف ليس البناء من الصفر، بل:
+
+إغلاق الثغرات الأمنية الحرجة أولًا.
+ربط VoucherPro بالـ Backend الرئيسي ولوحة الإدارة والواتساب.
+تفعيل بوابة الوكلاء (Agent Portal) وتحسين AI Extraction.
+استيفاء معايير PCI / GDS / IATA قبل التوسع.
+2. نتائج المراجعة الأمنية
+2.1 ثغرات حرجة (Critical) — يُصلح فورًا
+#	الثغرة	الموقع	الإجراء الفوري
+1	تسريب أسرار DB + JWT	Voucher Pro/VoucherPro_Clean_Publish/appsettings*.json	تدوير SQL user/pass + JWT secret؛ حذف المجلدات من المصدر
+2	إعادة تعيين كلمة المرور بدون توكن	AuthService.cs	حفظ TokenHash في جدول PasswordResetToken والتحقق منه
+3	الدفع يسجّل نجاحًا دائمًا	PaymentService.cs	ربط Moyasar/Tabby/Tamara فعليًا أو Feature Flag Payment:SimulationMode=false في Production
+4	كلمة مرور افتراضية	VoucherProSettings.cs	إزالة Password = "Admin@123" وقراءة القيمة من Key Vault
+5	رقم مرجعي عشوائي بدون تفريد	BookingService.cs	Unique Constraint على ReferenceNumber + Seq/Guid آمن
+6	Fallback JWT secret	AgentService.cs	رفض التوقيع إذا لم يُحضر SecretKey
+2.2 مشاكل عالية الخطورة (High)
+CORS وهمي في VoucherPro.APIs/Program.cs: https://yourdomain.com → تحميل Origins الحقيقية من الإعدادات.
+غياب [Authorize(Roles = "Admin")] على Admin*Controller.
+WhatsApp caching محلي بـ static في WhatsAppAgentService.cs → انتقال لـ Redis.
+غياب [Timestamp] RowVersion على FlightSchedule, Booking, CustomerRequest, Quotation.
+FlightAggregatorService.cs لا يحتوي Circuit Breaker → Polly + graceful degradation.
+ملفات النشر backend/publish وVoucherPro_Clean_Publish في المصدر → إزالتها وإضافتها للـ .gitignore.
+2.3 تحسينات مجالية
+المجال	الإجراء	الأولوية
+Performance	AsNoTracking + Projection + مراجعة migration الأداء	عالي
+Caching	Redis بدل IMemoryCache وstatic	متوسط
+Resilience	Polly لـ Amadeus/Duffel/Freshchat	عالي
+Observability	Serilog → Seq/CloudWatch	متوسط
+Tests	إكمال PaymentServiceTests وإضافة Integration Tests	متوسط
+Frontend	Code Splitting + تحسين Admin UX للمزاد	منخفض
+3. التصميم الهدف للمزاد الذكي
+3.1 المكونات
+
+Apply
+┌─────────────────────────────────────────────────────────────┐
+│                    Frontend / Admin / WhatsApp              │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+          ┌────────────▼─────────────┐
+          │   Main Backend (.NET 8)  │
+          │  Bookings/Payments/Users │
+          └────────────┬─────────────┘
+                       │ creates/reads
+          ┌────────────▼─────────────┐
+          │   VoucherPro Microservice│
+          │  CustomerRequest         │
+          │  Quotation / Agent       │
+          │  QuotationComparison     │
+          │  QuotationHub (SignalR)  │
+          │  Gemini PDF Extractor    │
+          └──────────────────────────┘
+3.2 تدفق العملية
+العميل يطلب عرض سعر مخصص (باقة/فندق/طيران) عبر الموقع أو الواتساب.
+Main Backend ينشئ CustomerRequest في VoucherPro عبر VoucherProIntegrationService.
+VoucherPro يرسل الطلب للوكلاء (Agents) مع_deadline_.
+الوكلاء يرسلون Quotation عبر Agent Portal أو API.
+محرك المقارنة QuotationService.CompareQuotationsAsync يقيس:
+السعر: 40%
+تقييم الوكيل: 25%
+سرعة الرد: 15%
+نسبة القبول: 10%
+جودة الفندق/الخدمة: 10%
+العميل/الإدارة يختارون أفضل عرض.
+VoucherPro يُبلّغ Main Backend عبر Webhook، فينشئ النظام Booking + Voucher.
+PDF Voucher يُستخرج تلقائيًا عبر GeminiService ومخزّن في Storage.
+3.3 التكامل الرئيسي
+Main Backend يستدعي VoucherPro API باستخدام VoucherProIntegrationService.
+VoucherPro يستدعي Main Backend عبر Webhook POST /api/webhooks/voucherpro/selection.
+SignalR Hub /hubs/quotations يرسل إشعارات فورية للوكلاء وللإدارة.
+Agent Portal: React/Vite منفصل أو صفحات ضمن Admin Dashboard.
+4. خطة التنفيذ المرحلية
+المرحلة 0: تأمين الأساس (48 ساعة)
+المهمة	المسؤول	الناتج
+تدوير أسرار VoucherPro	Lead Backend	DB user/password + JWT secret جديدة
+حذف/تجاهل ملفات النشر	DevOps	.gitignore محدّث + نظافة المصدر
+إصلاح AuthService reset token	Lead Backend	PasswordResetToken جاهز
+إيقاف محاكاة الدفع	Backend	Feature Flag أو ربط حقيقي
+إزالة Admin@123	Backend	VoucherProSettings clean
+تهيئة Git repository	Tech Lead	Repo جاهز للتعاون
+المرحلة 1: ربط VoucherPro بالنظام الرئيسي (أسبوعان)
+إعداد VoucherProIntegrationService لإنشاء CustomerRequest.
+Webhook من VoucherPro عند اختيار عرض.
+تخزين VoucherProRequestId داخل Booking / User / CustomerRequest.
+Sync الحالات بين النظامين.
+المرحلة 2: Agent Portal + لوحة المزايدات (2–3 أسابيع)
+صفحة تسجيل/دخول الوكلاء.
+قائمة الطلبات المتاحة.
+نموذج إرسال عرض سعر.
+لوحة إدارة ترى العروض والمقارنة.
+SignalR notifications.
+المرحلة 3: واتساب و AI Extraction (أسبوعان)
+إضافة خيار "اطلب عرض سعر من الوكلاء" في بوت الواتساب.
+تحسين GeminiService لاستخراج بيانات Voucher PDF بدقة.
+تسجيل كل محادثة في ConversationLog.
+المرحلة 4: تدفق العميل في الموقع الرئيسي (2–3 أسابيع)
+نموذج "طلب عرض سعر مخصص".
+صفحة متابعة العروض.
+اختيار العرض → إنشاء حجز → دفع.
+Dashboard للعميل لمتابعة طلباته.
+المرحلة 5: اختبار وامتثال وإطلاق (أسبوعان)
+Integration tests.
+Penetration test خفيف.
+PCI self-assessment.
+Load test على SignalR.
+Soft launch /_preview users.
+5. قائمة الامتثال (Compliance Checklist)
+PCI DSS
+[ ] لا تُخزّن رقم البطاقة (PAN) أو CVV مطلقًا.
+[ ] استخدام Tokenization من بوابة الدفع.
+[ ] TLS 1.2+ على كل القنوات.
+[ ] فصل شبكة الدفع عن بقية النظام (network segmentation).
+[ ] Audit logs لكل transaction.
+[ ] Access control مبني على الأدوار (RBAC).
+IATA / GDS / ARC
+[ ] Production endpoints لـ Amadeus & Hotelbeds.
+[ ] PNR/Ticketing traceability.
+[ ] Audit log لكل بحث، حجز، تعديل، إلغاء.
+[ ] Data retention policy (5–7 سنوات).
+[ ] Cancellation & refund workflow موثق.
+خصوصية البيانات (KSA / GDPR-like)
+[ ] Consent واضح عند جمع الهوية/الجوال/البريد.
+[ ] إمكانية تصدير/حذف بيانات العميل بناءً على الطلب.
+[ ] عدم مشاركة بيانات العميل مع الوكلاء إلا بما يكفي لتنفيذ الطلب.
+AML / KYC (إن تطلب النظام مستقبلًا)
+[ ] تسجيل هوية الوكلاء.
+[ ] مراجعة دورية للمعاملات عالية القيمة.
+[ ] Integration مع قائمات العقوبات (future).
+6. المخاطر ومؤشرات النجاح
+أبرز المخاطر
+الخطر	التأثير	الحد
+التسريبات الأمنية	إيقاف الإطلاق	إغلاق الثغرات قبل أي تطوير
+تعقيد دمج VoucherPro	تأخير وتكلفة	Webhook واضح + Entity Mapping واضح
+مقاومة الوكلاء للنظام الجديد	عروض ضعيفة	Onboarding + حوافز + UX سهل
+أداء SignalR عند التوسع	بطء/توقف	Redis backplane + load test
+رفض GDS للشهادة	عدم الوصول لل Production APIs	إعداد الأرشفة وال Audit Logs مبكرًا
+مؤشرات النجاح (KPIs)
+وقت أول عرض سعر: 5 دقائق في المتوسط.
+نسبة تحويل الطلب المخصص إلى حجز: ≥ 20%.
+رضا الوكلاء: ≥ 80% يستخدمون النظام يوميًا.
+دقة استخراج AI للفاتورة: ≥ 90%.
+Uptime: 99.9%.
+وقت اختيار العرض: < 2 دقيقة من وصول المقارنة.
+7. قائمة العمل العاجلة (Runbook — 48 ساعة)
+قبل أي شيء آخر:
+
+تدوير أسرار VoucherPro:
+تغيير SQL user/pass.
+تغيير JWT secret.
+تعطيل المستخدم القديم إن أمكن.
+إزالة ملفات النشر من المصدر:
+حذف backend/publish.
+حذف Voucher Pro/publish.
+حذف Voucher Pro/VoucherPro_Clean_Publish.
+حذف VoucherPro_Release.zip.
+تهيئة Git + .gitignore:
+git init في جذر المشروع.
+.gitignore يتضمن **/bin/**, **/obj/**, **/publish*/, **/VoucherPro_Clean_Publish/.
+إصلاح AuthService.cs:
+إنشاء PasswordResetToken.
+التحقق من TokenHash و ExpiresAt و Used.
+تنظيف PaymentService.cs:
+ربط بوابة حقيقية أو تفعيل Payment:SimulationMode في QA فقط.
+تنظيف VoucherProSettings.cs:
+إزالة Admin@123.
+تفعيل Authorize على Admin Controllers:
+[Authorize(Roles = "Admin")] على كل Admin*Controller.
+التأكد من وجود role claim في JWT.
+تفعيل RowVersion:
+[Timestamp] على FlightSchedule, Booking, CustomerRequest, Quotation.
+تهيئة Redis:
+للـ distributed cache.
+لـ SignalR backplane (لاحقًا).
+لـ WhatsApp deduplication.
+مراجعة CORS:
+إزالة https://yourdomain.com الوهمي.
+جعل Origins تُقرأ من الإعدادات.
+8. ملخص القرار
+لا نبدأ Phase 1 قبل إغلاق المرحلة 0.
+الأمن والأساس يجب أن يكونا سليمين؛ بعدها ربط VoucherPro وإطلاق المزاد يكونان أسرع وأقل مخاطر.
+
+لو وافقت، أقدر أرجع أحفظ هذه الأقسام في الملفات المقسمة (01_security_audit.md, 02_architecture.md, ... إلخ) بأجزاء صغيرة عشان أداة الملفات ما تقطّعوش. أو نكتفي بالنسخة في الشات لو حابب تبقى مرجع سريع. أخبرني وانطلق فورًا.
+
+
+
+
+
+
+ممكن تقولي في الشات الخطة التفصيلية وتقسمها في ردك علي مرتين بس تكون الخطة التفصيلية الي تستحضر فيها مراجعتك لكل تفصيلة في الكود ايه رأيك ؟
+
+
+Agent
+
+Kimi K2.7 Code
+Ctrl⏎ Active file
+⏎ Enter
+Thought
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+تمام، ده الخطة التفصيلية مقسمة لجزئين.
+الجزء الأول = المراجعة الأمنية والكودية، الجزء الثاني = التصميم الهدف وخطة التنفيذ والامتثال.
+
+الجزء الأول: المراجعة الأمنية والكودية التفصيلية
+1. نطاق المراجعة
+بناءً على قراءة الملفات الفعلية، تم فحص:
+
+backend/src/Core.Application/Services/Identity/AuthService.cs
+backend/src/Core.Application/Services/Reservations/PaymentService.cs
+backend/src/Core.Application/Services/Reservations/BookingService.cs
+backend/src/Infrastructure.Shared/Settings/VoucherProSettings.cs
+backend/src/Infrastructure.Shared/Services/VoucherProIntegrationService.cs
+backend/src/APIs/Controllers/Admin*Controller.cs
+Voucher Pro/VoucherPro.APIs/Program.cs
+Voucher Pro/VoucherPro.APIs/Controllers/CustomerRequestsController.cs
+Voucher Pro/VoucherPro.APIs/Controllers/QuotationsController.cs
+Voucher Pro/VoucherPro.Core.Application/Services/CustomerRequestService.cs
+Voucher Pro/VoucherPro.Core.Application/Services/QuotationService.cs
+Voucher Pro/VoucherPro.Core.Application/Services/AgentService.cs
+Voucher Pro/VoucherPro.APIs/Hubs/QuotationHub.cs
+Voucher Pro/VoucherPro.APIs/Services/GeminiService.cs
+admin/vite.config.js و vite.config.js
+2. الثغرات الحرجة (Critical) — مع تفاصيل الكود
+2.1 تسريب أسرار VoucherPro
+الملفات المشتبهة:
+
+Voucher Pro/VoucherPro_Clean_Publish/appsettings.json
+Voucher Pro/VoucherPro_Clean_Publish/appsettings.Production.json
+Voucher Pro/VoucherPro_Clean_Publish/appsettings.Development.json
+Voucher Pro/VoucherPro.APIs/bin/Release/net8.0/*/appsettings*.json
+المكشوف: عنوان السيرفر db40744.public.databaseasp.net، SQL user/password، وJWT SecretKey.
+
+الإجراء:
+
+تدوير SQL user/pass فورًا.
+تغيير JWT SecretKey لطول >= 64 bytes مشفر Base64.
+حذف مجلدات publish/ وVoucherPro_Clean_Publish/ من المصدر.
+نقل الأسرار إلى Azure Key Vault أو Environment Variables.
+2.2 إعادة تعيين كلمة المرور بدون تحقق من التوكن
+الملف: backend/src/Core.Application/Services/Identity/AuthService.cs
+
+المشكلة كما في الكود:
+
+GeneratePasswordResetTokenAsync توَلّد توكن ولكن لا تُخزّنه.
+ResetPasswordAsync تأخذ email + newPassword فقط بدون أي token.
+التعديل المقترح:
+
+AuthService.cs
+
+Apply
+public async Task<string> GeneratePasswordResetTokenAsync(string email)
+{
+    var user = await _userManager.FindByEmailAsync(email);
+    if (user == null) return null;
+
+    var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(rawToken));
+
+    await _dbContext.PasswordResetTokens.AddAsync(new PasswordResetToken
+    {
+        UserId = user.Id,
+        Email = email,
+        TokenHash = Convert.ToHexString(tokenHash),
+        ExpiresAt = DateTime.UtcNow.AddMinutes(15),
+        CreatedAt = DateTime.UtcNow
+    });
+    await _dbContext.SaveChangesAsync();
+    return rawToken;
+}
+
+public async Task<Result> ResetPasswordAsync(string email, string token, string newPassword)
+{
+    var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    var reset = await _dbContext.PasswordResetTokens
+        .FirstOrDefaultAsync(t => t.Email == email 
+                               && t.TokenHash == tokenHash 
+                               && t.ExpiresAt > DateTime.UtcNow 
+                               && t.UsedAt == null);
+
+    if (reset == null) return Result.Failure("Invalid or expired token");
+
+    var user = await _userManager.FindByEmailAsync(email);
+    var result = await _userManager.ResetPasswordAsync(user, await _userManager.GeneratePasswordResetTokenAsync(user), newPassword);
+    // أو استخدم ChangePassword بعد استبدالها
+    reset.UsedAt = DateTime.UtcNow;
+    await _dbContext.SaveChangesAsync();
+    return Result.Success();
+}
+2.3 الدفع يسجّل "ناجح" دائمًا
+الملف: backend/src/Core.Application/Services/Reservations/PaymentService.cs
+
+المشكلة:
+
+Csharp
+
+Apply
+payment.Status = PaymentStatus.Completed;
+ويُستخدم ذكر 4242 كبطاقة اختبار، مما يعني أي دفعة في Production ستُنفذ وهميًا.
+
+الإجراء:
+
+في appsettings.Production.json: "Payment:SimulationMode": false.
+في الكود:
+Csharp
+
+Apply
+if (_settings.SimulationMode)
+{
+    payment.Status = PaymentStatus.Completed;
+    return;
+}
+// وإلا: استدعِ Moyasar/Tabby/Tamara وتحقق من الـ callback
+2.4 رقم المرجع عشوائي بدون تفريد
+الملف: backend/src/Core.Application/Services/Reservations/BookingService.cs
+
+المشكلة: Random.Next(...) يُنتج قيمًا قابلة للتكرار، ولا يوجد Unique Constraint مطبق.
+
+الإجراء:
+
+Csharp
+
+Apply
+// Booking.cs
+[Index(nameof(ReferenceNumber), IsUnique = true)]
+public class Booking { ... }
+واستبدال Random.Next بـ:
+
+Csharp
+
+Apply
+private string GenerateReferenceNumber()
+    => $"ALM-{DateTime.UtcNow:yyMM}-{Ulid.NewUlid()}".ToUpperInvariant();
+2.5 كلمة مرور افتراضية في VoucherProSettings
+الملف: backend/src/Infrastructure.Shared/Settings/VoucherProSettings.cs
+
+Csharp
+
+Apply
+Password = "Admin@123";
+الإجراء: إزالة القيمة الافتراضية والسماح بـ null أو string.Empty:
+
+Csharp
+
+Apply
+public string Password { get; set; } = null!;
+والتحقق في Startup إن لم تُحضر من Config.
+
+2.6 Fallback JWT Secret في AgentService
+الملف: Voucher Pro/VoucherPro.Core.Application/Services/AgentService.cs
+
+المشكلة: GenerateJwtToken يحتوي على قيمة افتراضية إذا فقد الإعداد.
+
+الإجراء: إلغاء القيمة الافتراضية وإيقاف التشغيل بـ InvalidOperationException إذا غير موجود:
+
+Csharp
+
+Apply
+if (string.IsNullOrWhiteSpace(_jwtSettings.SecretKey))
+    throw new InvalidOperationException("V
+
+
+
+
+
+
+تمام كمل الاجزاء الي بعد كدا
+
+
+Agent
+
+Kimi K2.7 Code
+Ctrl⏎ Active file
+⏎ Enter
+Thought
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+تمام، هنكمل من حيث انقطعنا، وبعدين الجزء الثاني كامل.
+
+3. إكمال باقي الثغرات والملاحظات الحرجة
+2.6 إكمال: Fallback JWT Secret في AgentService
+الملف: Voucher Pro/VoucherPro.Core.Application/Services/AgentService.cs
+
+var secretKey = _configuration["Jwt:SecretKey"] 
+    ?? throw new InvalidOperationException("VoucherPro JWT SecretKey is not configured.");
+لا يجوز أن يوجد ?? "default-secret" أو أي Fallback؛ التطبيق يجب أن يتوقف فوراً عند غياب الإعداد.
+
+4. مشاكل عالية الخطورة (High) —مراجعتها لكل سطر
+4.1 Admin Controllers لا تحمل [Authorize(Roles = "Admin")]
+راجعت backend/src/APIs/Controllers/ ووجدت أن معظم الـ Admin*Controller مسجّلة، لكن لا يمكن التأكد من وجود Authorize على كل Endpoint إلا بعملية Audit Programmatic:
+
+Csharp
+
+Apply
+var adminControllers = Assembly.GetExecutingAssembly()
+    .GetTypes()
+    .Where(t => typeof(ControllerBase).IsAssignableFrom(t)
+                && t.Name.StartsWith("Admin"));
+// تحقق أن كل Controller يحمل [Authorize(Roles = "Admin")]
+4.2 CORS وهمي
+الملف: Voucher Pro/VoucherPro.APIs/Program.cs
+
+Csharp
+
+Apply
+.WithOrigins("https://yourdomain.com")
+يجب استبداله بـ:
+
+Csharp
+
+Apply
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+policy.WithOrigins(allowedOrigins ?? Array.Empty<string>());
+4.3 WhatsApp static cache
+الملف: backend/src/Core.Application/Services/WhatsApp/WhatsAppAgentService.cs
+
+static fields تُستخدم للـ deduplication والـ debounce.
+المشكلة: لا تعمل على أكثر من خادم.
+الحل: استبدالها بـ IDistributedCache (Redis) أو بـ IMemoryCache injected على الأقل.
+4.4 غياب Optimistic Concurrency
+الملف: backend/src/Core.Domain/Entities/Reservations/Booking.cs يوجد [Timestamp] على Booking، لكن لا يوجد على:
+
+FlightSchedule
+CustomerRequest
+Quotation
+Voucher
+يجب إضافة:
+
+Csharp
+
+Apply
+[Timestamp]
+public byte[] RowVersion { get; set; }
+وعند Update:
+
+Csharp
+
+Apply
+try { await _dbContext.SaveChangesAsync(); }
+catch (DbUpdateConcurrencyException) { ... }
+4.5 لا يوجد Circuit Breaker للموفرين الخارجيين
+الملف: backend/src/Infrastructure.Shared/Services/Aggregators/FlightAggregatorService.cs الموفرين: Duffel, Amadeus, RapidAPI... ينبغي إضافة Polly:
+
+Csharp
+
+Apply
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .WaitAndRetryAsync(3, retryAttempt => 
+        TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))))
+.AddPolicyHandler(HttpPolicyExtensions
+    .HandleTransientHttpError()
+    .CircuitBreakerAsync(5, TimeSpan.FromSeconds(30)));
+5. لماذا الميزة موجودة فعلاً ولا نبني من الصفر؟
+راجعت VoucherPro بالكامل ووجدت:
+
+الوظيفة	الملف	الحالة
+إنشاء طلب العميل	CustomerRequestService.cs	موجود
+إرسال الطلب للوكلاء	SendToAgentsAsync	موجود
+تقديم عروض الأسعار	QuotationService.SubmitQuotationAsync	موجود
+محرك المقارنة	QuotationService.CompareQuotationsAsync	موجود وبأوزان واضحة
+Real-time updates	QuotationHub.cs	موجود SignalR
+استخراج PDF	GeminiService.cs	موجود
+توليد Voucher	CustomerRequestService.CreateVoucherAsync	موجود
+الخلاصة: لا نحتاج بناء محرك جديد، بل توحيد هذه الخدمة مع النظام الرئيسي.
+
+الجزء الثاني: التصميم الهدف + خطة التنفيذ + الامتثال
+6. التصميم الهدف للمزاد الذكي
+6.1 المكونات
+
+Apply
+Frontend / Admin / WhatsApp / Agent Portal
+                │
+                ▼
+    ┌───────────────────────┐
+    │   Main Backend API    │
+    │ Bookings · Payments   │
+    │ wallet · Users        │
+    └───────┬───────────────┘
+            │ HTTP/Webhook
+            ▼
+    ┌───────────────────────────┐
+    │   VoucherPro Microservice │
+    │ CustomerRequest           │
+    │ Quotation / Agent         │
+    │ QuotationComparison       │
+    │ QuotationHub (SignalR)    │
+    │ Gemini PDF Extractor      │
+    └───────────────────────────┘
+6.2 تدفق البيانات بالتفصيل
+العميل يفتح "اطلب عرض سعر مخصص" في الموقع أو يكتب واتساب.
+Main Backend ينشئ CustomerRequest في VoucherPro عبر VoucherProIntegrationService.
+VoucherPro يُرسّل الطلب للوكلاء (بناءً على التخصص والجغرافيا) مع deadline.
+الوكلاء يردون بـ Quotation عبر API أو Portal.
+QuotationService.CompareQuotationsAsync يُنتج أفضل عرض وفق الأوزان:
+السعر: 40%
+تقييم الوكيل: 25%
+سرعة الرد: 15%
+نسبة قبول الوكيل سابقًا: 10%
+جودة الفندق/الخدمة: 10%
+العميل أو الأدمن يختاران العرض.
+VoucherPro يُرسل Webhook للـ Main Backend لإنشاء Booking + Voucher.
+Voucher PDF يُستخرج تلقائيًا عبر GeminiService ويُخزّن في Azure Blob / AWS S3.
+6.3 نقاط التكامل الرئيسية
+HTTP API: Main Backend ←→ VoucherPro.
+Webhook: POST /api/webhooks/voucherpro/selection في Main Backend.
+SignalR Hub: /hubs/quotations للإشعارات الفورية.
+Storage: PDF Vouchers في Cloud Storage.
+7. خطة التنفيذ المرحلية — 6 مراحل
+المرحلة 0: تأمين الأساس (48 ساعة)
+المهمة	المخرج
+تدوير أسرار VoucherPro	DB pass + JWT secret جديدة
+تهيئة Git repo + .gitignore	سيطرة على المصدر
+إصلاح AuthService	PasswordResetToken يُخزّن ويُتحقق
+إيقاف محاكاة الدفع	Feature Flag أو ربط حقيقي
+تنظيف VoucherProSettings	لا قيم افتراضية
+تفعيل [Authorize(Roles="Admin")]	كل AdminController محمي
+RowVersion على الكيانات الحرجة	منع Race Condition
+المرحلة 1: ربط VoucherPro (أسبوعان)
+VoucherProIntegrationService يدعم CreateCustomerRequestAsync.
+تخزين VoucherProRequestId في Booking / User.
+Webhook لاستقبال العرض المختار.
+Sync الحالات بين النظامين.
+المرحلة 2: Agent Portal + لوحة المزايدات (2–3 أسابيع)
+تسجيل/دخول الوكلاء.
+قائمة الطلبات المتاحة.
+نموذج تقديم عرض سعر.
+لوحة الإدارة تعرض المقارنة التلقائية.
+SignalR notifications.
+المرحلة 3: WhatsApp + AI Extractor (أسبوعان)
+إضافة intent "اطلب عرض سعر" في WhatsAppAgentService.
+تحويل WhatsAppAgentService إلى State Machine Clean.
+تحسين GeminiService بدقة ≥ 90%.
+المرحلة 4: تدفق العميل في الموقع الرئيسي (2–3 أسابيع)
+نموذج طلب عرض سعر مخصص.
+صفحة متابعة العروض.
+اختيار عرض → حجز → دفع.
+Dashboard للعميل.
+المرحلة 5: اختبار وإطلاق (أسبوعان)
+Integration Tests.
+Penetration test خفيف.
+Load test على SignalR.
+PCI self-assessment.
+Soft launch.
+8. الامتثال
+PCI DSS
+لا تُخزّن PAN/CVV.
+Tokenization من بوابة الدفع.
+TLS 1.2+.
+Audit logs لكل معاملة.
+IATA / GDS / ARC
+Production endpoints لـ Amadeus/Hotelbeds.
+PNR/Ticketing traceability.
+Audit trail لكل بحث/حجز/إلغاء.
+سياسة احتفاظ بالبيانات 5–7 سنوات.
+خصوصية (KSA / GDPR-like)
+Consent واضح.
+حذف/تصدير بيانات العميل عند الطلب.
+عدم مشاركة بيانات العميل مع الوكلاء إلا بما يكفي للخدمة.
+9. المخاطر ومؤشرات النجاح
+أبرز المخاطر
+الخطر	الحد
+تسريب الأسرار	إغلاقه قبل أي تطوير
+تعقيد التكامل مع VoucherPro	Webhook واضح + Mapping واضح
+الوكلاء لا يتبنّون النظام	Onboarding + حوافز + UX بسيط
+SignalR تحت الضغط	Redis backplane + Load test
+رفض GDS	Audit logs + Documentation
+KPIs
+وقت أول عرض: ≤ 5 دقائق.
+نسبة تحويل الطلب المخصص: ≥ 20%.
+دقة استخراج PDF: ≥ 90%.
+Uptime: 99.9%.
+وقت اختيار العرض: < 2 دقيقة.
+10. Runbook العاجل — 48 ساعة
+دوّر أسرار VoucherPro.
+احذف publish/ وVoucherPro_Clean_Publish/ من المصدر.
+شغّل git init وحدّث .gitignore.
+أصلح AuthService بجدول PasswordResetToken.
+أزل/secure VoucherProSettings.Password.
+احمِ كل Admin*Controller بـ
+
+
+
+
+
+
+في حاجات تاية ؟ 
+
+
+Agent
+
+Kimi K2.7 Code
+Ctrl⏎ Active file
+⏎ Enter
+Thought
+
+
+
+
+
+
+
+
+
+
+نعم، الرسالة الأخيرة انقطعت عند البند ٦ في الـ Runbook. وهناك أيضًا أقسام مهمة أخرى لم تُذكر بالتفصيل. دي الحاجات الناقصة:
+
+1. إكمال Runbook الـ 48 ساعة (من البند ٦)
+#	المهمة	التفاصيل
+6	أضف [Authorize(Roles = "Admin")]	على كل Admin*Controller، وتأكد أن JWT يصدر role claim
+7	أصلح CORS	احذف https://yourdomain.com في VoucherPro والـ Main Backend؛ استخدم AllowedOrigins من الإعدادات
+8	فعّل RowVersion	على FlightSchedule، Booking، CustomerRequest، Quotation
+9	جهّز Redis	للـ distributed cache + SignalR backplane + WhatsApp deduplication
+10	خذ نسخ احتياطي من قواعد البيانات	قبل أي تعديل أو migration
+11	اجري smoke tests	تسجيل دخول، حجز، دفع test mode، إنشاء طلب في VoucherPro
+12	جمّد أي إطلاق جديد	حتى تنتهي المرحلة ٠ بالكامل
+2. أقسام مهمة لم تُعرض بالكامل
+2.1 إدارة الأسرار (Secrets Management)
+لا يكفي نقل الأسرار إلى appsettings وحدها. يجب:
+
+استخدام Azure Key Vault أو AWS Secrets Manager.
+أو قراءتها من Environment Variables في Production.
+عدم كتابة أسرار في appsettings.Production.json نهائيًا.
+استخدام .NET User Secrets أثناء التطوير فقط.
+2.2 Agent Onboarding & KYC
+الوكلاء هم مستخدمون جدد في النظام:
+
+تسجيل الوكيل يحتاج موافقة Admin.
+رفع الهوية/الترخيص.
+كل وكيل له Rating وAcceptanceRate وResponseTime.
+تقييم العميل للوكيل يؤثر على درجة المقارنة.
+2.3 Logging & Observability
+توحيد logs بـ Serilog.
+إرسالها لـ Seq أو CloudWatch أو Splunk.
+تتبع كل transaction عبر CorrelationId.
+مراقبة: latency، error rate، failed payments، quotation response time.
+2.4 Data Migration
+هل CustomerRequest الجديد مرتبط بـ Booking القديمة؟
+تحويل الطلبات المخصصة الحالية إلى VoucherPro؟
+الاحتفاظ على ReferenceNumber القديم وعدم التعارض.
+2.5 Backup & Disaster Recovery
+Backups يومية لقواعد البيانات.
+Plan لاستعادة VoucherPro والـ Main Backend.
+RTO/RTO محددة.
+2.6 Rollback Plan
+كل Phase يجب أن يكون قابلًا للrollback.
+Feature Flags لكل مرحلة.
+آلية لتعطيل VoucherPro integration والرجوع للflow القديم.
+2.7 Frontend Changes Needed
+صفحة Admin لمراجعة الطلبات والعروض.
+شاشة مقارنة العروض (Score + Price + Rating).
+نموذج العميل "اطلب عرض سعر".
+صفحة Agent Portal منفصلة أو قسم داخل Admin.
+2.8 VoucherPro NotificationService
+Push Notification: TODO.
+WhatsApp Notification: TODO.
+Email: موجود.
+يجب إكمال Push/WhatsApp لإشعار الوكلاء فورًا عند وصول طلب.
+2.9 API Documentation للوكلاء
+Swagger موجود.
+لكن يحتاج دليل integration واضح.
+API keys للوكلاء.
+Rate limiting منطقي لكل وكيل.
+2.10 Roles & Permissions Matrix
+SuperAdmin: كل الصلاحيات.
+Admin: مراجعة الطلبات، الموافقة على الوكلاء.
+Agent: تقديم عروض، رؤية طلباته.
+Customer: إنشاء طلب، اختيار عرض.
+Owner (VoucherPro): إدارة الوكلاء.
+2.11 Feature Flags
+VoucherPro:Enabled
+Payment:SimulationMode
+QuotationComparison:AutoSuggest
+WhatsAppRfp:Enabled
+AgentPortal:Enabled
+2.12 Penetration & Load Testing
+Penetration test على endpoints العامة.
+Load test على SignalR hub مع 1000 وكيل متزامن.
+Stress test على PaymentService.
+3. ما الذي يجب فعله مباشرة بعد الـ 48 ساعة؟
+أنشئ تذاكر (tickets) لكل بند في المرحلة ٠.
+وزّعها على الفريق:
+Backend Lead: Auth + Payment + Booking.
+DevOps/Cloud: Secrets + Redis + Git + CORS.
+Fullstack: Admin Comparison UI + WhatsApp State Machine.
+QA: Smoke tests + regression.
+اجتماع يومي 15 دقيقة حتى تنتهي المرحلة ٠.
+بعد المرحلة ٠، اعمل Proof-of-Concept واحد:
+العميل يطلب عرض → VoucherPro يرسل للوكيل → وكيل يرد → Admin يختار → Booking يُنشأ.
+إذا فيه أي جزء من الأجزاء دي تحب أن أكتبه بالتفصيل أكثر (مثل كود AuthService كامل، أو تصميم الـ Agent Portal، أو خطة الاختبار)، قولي وأنا أكمله فورًا.

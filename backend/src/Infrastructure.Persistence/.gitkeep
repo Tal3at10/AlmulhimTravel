@@ -1,0 +1,2 @@
+# Infrastructure.Persistence
+# Contains: DbContext, Repositories, Configurations, Migrations

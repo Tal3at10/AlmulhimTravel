@@ -1,0 +1,132 @@
+# ===========================================
+# AlMulhim Travel - Monorepo Comprehensive GitIgnore
+# ===========================================
+
+# --- Build Results & Binaries (.NET & C#) ---
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+publish/
+publish_clean/
+publish_b2b/
+*publish*/
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+*.userprefs
+.vs/
+
+# --- Tools & Decompilation Binaries ---
+ilspy/
+ilspy_bin/
+ilspycmd-tool/
+*.exe
+*.dll
+*.pdb
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.backup
+*.bak
+*.tmp
+
+# --- Node & Frontend Build Artifacts ---
+node_modules/
+dist/
+build/
+.npm/
+.vite/
+backend/src/APIs/wwwroot/assets/
+backend/src/APIs/wwwroot/admin/assets/
+backend/src/APIs/wwwroot/logs/
+
+# --- Environment & Secrets ---
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+appsettings.Development.json
+appsettings.Production.json
+secrets.json
+
+# --- Sensitive Data Dumps & Customer Chat Logs ---
+conversations_dump*
+recent_250_conversations*
+recent_conversations_dump*
+last100_messages*
+last_100_conversations*
+messages*.csv
+readable_messages*
+hotels_response.json
+response*.json
+ai_test_results.json
+rag_test_results*.json
+test_audio.json
+test_openrouter.json
+test_response.json
+analysis_chunks/
+analysis_report.json
+temp_recovery_logs/
+scratch/
+scratch_test/
+ai_errors.txt
+DropOff_Suspicious_Report*
+Merged_Suspicious_Report*
+Suspicious_Audit_Report*
+*.dump
+*.dump.txt
+*.dump.json
+
+# --- Office & Heavy Document Files ---
+*.xlsx
+*.xls
+*.csv
+*.docx
+*.doc
+*.pdf
+Voucher Pro/
+meeting notes/
+
+# --- Media & Heavy Assets (Outside static web assets) ---
+videos/
+music/
+almatar - screenshots/
+some images/
+images/
+*.ogg
+*.mp4
+*.wav
+*.avi
+*.mov
+WhatsApp Image*
+WhatsApp Ptt*
+WhatsApp Video*
+WhatsApp Audio*
+img_*
+
+# --- IDEs & OS Files ---
+.idea/
+.vscode/
+.gemini/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

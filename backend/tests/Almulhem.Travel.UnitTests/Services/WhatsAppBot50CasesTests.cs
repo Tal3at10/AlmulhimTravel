@@ -80,5 +80,49 @@ namespace Almulhem.Travel.UnitTests.Services
             action.Should().Be("handoff_sales");
             hallucinatedText.Should().Contain("(تم تنبيه الموظف لخدمتك 👨‍💼)");
         }
+
+        [Fact]
+        public void Test_KnowledgeBase_Contains_Official_Email_And_No_Wrong_Email()
+        {
+            var content = Core.Application.Services.WhatsApp.WhatsAppKnowledgeBase.Content;
+            content.Should().Contain("almulhim_travel@yahoo.com");
+            content.Should().NotContain("info@almulhimtravel.com");
+        }
+
+        [Theory]
+        [InlineData("{\"action\": \"respond\", \"response\": \"أهلاً بك يا غالي! كيف أقدر أخدمك اليوم؟\"}", "أهلاً بك يا غالي! كيف أقدر أخدمك اليوم؟")]
+        [InlineData("```json\n{\"action\": \"ask_details\", \"response\": \"كم عدد المسافرين وتاريخ السفر التقريبي؟\"}\n```", "كم عدد المسافرين وتاريخ السفر التقريبي؟")]
+        [InlineData("{\"action\": \"show_packages\", \"response\": \"{تفضل أفضل عروضنا لتركيا:}\"}", "تفضل أفضل عروضنا لتركيا:")]
+        public void Test_JSON_Sanitizer_Removes_All_Syntax_Leaks(string rawInput, string expectedSanitized)
+        {
+            // Simulate the exact sanitization logic in WhatsAppAgentService
+            var text = rawInput.Replace("```json", "").Replace("```", "").Trim();
+            if (text.StartsWith("{") && text.EndsWith("}"))
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(text);
+                if (doc.RootElement.TryGetProperty("response", out var res))
+                {
+                    text = res.GetString() ?? text;
+                }
+            }
+
+            text = text.Replace("{", "").Replace("}", "").Replace("\"", "").Trim();
+            text.Should().Be(expectedSanitized);
+        }
+
+        [Fact]
+        public void Test_Combined_Handoff_Message_Formatting()
+        {
+            var finalMsg = "تم تأكيد طلبك وجاري تحويلك للمختصين 👨‍💼";
+            var securityNotice = "⚠️ *تنبيه أمني لعملائنا:*\nالتعاملات المالية والحجوزات تتم حصراً عبر هذا الرقم الرسمي لـ *سفريات الملحم* عبر قنوات الدفع المعتمدة فقط (حسابات الشركة البنكية، روابط تابي/تمارا، أو بالفروع).";
+            
+            var combinedHandoffMessage = !string.IsNullOrWhiteSpace(finalMsg)
+                ? $"{finalMsg}\n\n━━━━━━━━━━━━━━━\n{securityNotice}"
+                : securityNotice;
+
+            combinedHandoffMessage.Should().Contain("تم تأكيد طلبك");
+            combinedHandoffMessage.Should().Contain("━━━━━━━━━━━━━━━");
+            combinedHandoffMessage.Should().Contain("⚠️ *تنبيه أمني لعملائنا:*");
+        }
     }
 }

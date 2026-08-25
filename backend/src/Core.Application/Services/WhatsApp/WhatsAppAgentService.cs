@@ -435,7 +435,13 @@ namespace Core.Application.Services.WhatsApp
                                 currentState = "WaitingForBookingDetails"; 
                                 conversation.Notes = $"[STATE:{currentState}][DEST:{dest}]"; 
                                 _unitOfWork.WhatsAppConversations.Update(conversation); 
-                                await SendAndSaveResponseAsync(conversation, $"يسعدنا تصميم رحلة مخصصة لك بالكامل لـ ({dest}) بأفضل الأسعار 🌍\n\nكم عدد المسافرين والبالغين للرحلة؟ (وهل يوجد أطفال؟)");
+                                bool aiAlreadyAskedQuestion = !string.IsNullOrWhiteSpace(aiResult.Response) && 
+                                                             (aiResult.Response.Contains("؟") || aiResult.Response.Contains("?"));
+
+                                var customReply = aiAlreadyAskedQuestion
+                                    ? aiResult.Response
+                                    : $"يسعدنا تصميم رحلة مخصصة لك بالكامل لـ ({dest}) بأفضل الأسعار 🌍\n\nكم عدد المسافرين وتاريخ السفر التقريبي؟";
+                                await SendAndSaveResponseAsync(conversation, customReply);
                                 return;
                             }
 
@@ -1254,12 +1260,13 @@ namespace Core.Application.Services.WhatsApp
                 conversation.Mode = ConversationMode.Human;
                 _unitOfWork.WhatsAppConversations.Update(conversation);
                 await _unitOfWork.SaveChangesAsync();
-                // 1. Send main handoff message to customer
-                await _whatsAppProvider.SendTextMessageAsync(conversationId, finalMessage);
+                // 1. Send combined handoff + security notice in one clean message
+                var securityNotice = "⚠️ *تنبيه أمني لعملائنا:*\nالتعاملات المالية والحجوزات تتم حصراً عبر هذا الرقم الرسمي لـ *سفريات الملحم* عبر قنوات الدفع المعتمدة فقط (حسابات الشركة البنكية، روابط تابي/تمارا، أو بالفروع).";
+                var combinedHandoffMessage = !string.IsNullOrWhiteSpace(finalMessage)
+                    ? $"{finalMessage}\n\n━━━━━━━━━━━━━━━\n{securityNotice}"
+                    : securityNotice;
 
-                // 2. Send Security Warning message to customer
-                var securityWarning = "⚠️ *تنبيه أمني لعملائنا:*\nالتعاملات المالية والحجوزات تتم حصراً عبر هذا الرقم الرسمي لـ *سفريات الملحم*.\n*قنوات الدفع المعتمده فقط:* (حسابات الشركة البنكية، روابط تابي/تمارا، أو الدفع بالفروع).\nتخلي الشركة مسؤوليتها التامة عن أي تحويلات تتم خارج هذا الرقم أو لحسابات أفراد شخصية.";
-                await _whatsAppProvider.SendTextMessageAsync(conversationId, securityWarning);
+                await _whatsAppProvider.SendTextMessageAsync(conversationId, combinedHandoffMessage);
 
                 // 3. Generate and send AI summary as a Private Note for the agent
                 try
@@ -1654,7 +1661,7 @@ namespace Core.Application.Services.WhatsApp
                         @"\[IMAGE:[\s\S]*?(\]|$)", 
                         "[صورة مرفقة]");
 
-                    if (cleanContent.Length > 150) cleanContent = cleanContent.Substring(0, 150) + "...";
+                    if (cleanContent.Length > 1000) cleanContent = cleanContent.Substring(0, 1000) + "...";
 
                     historyLines.Add($"{role}: {cleanContent}");
                 }
@@ -1700,11 +1707,11 @@ namespace Core.Application.Services.WhatsApp
             sbPrompt.AppendLine(WhatsAppKnowledgeBase.Content);
             sbPrompt.AppendLine();
             sbPrompt.AppendLine(@"الخيارات المتاحة للقرار (Action):
-- ""show_packages"": اختر هذا الخيار فقط في بداية الاستفسار لعرض الباقات الجاهزة. **تنبيه صارم:** إذا كانت باقات الوجهة قد عُرضت للعميل سابقاً في سياق المحادثة أو كان العميل يزودك بتواريخ/عدد أيام/أشخاص أو يطلب باقة مخصصة، يُمنع منعاً باتاً اختيار ""show_packages"" مرة أخرى! اختر ""ask_details"" واسأله مباشرة عن المعلومة التالية الناقصة.
-- ""ask_details"": اختر هذا الخيار إذا طلب العميل تفاصيل باقة أو تصميم رحلة واسأله بلطف عن البيانات الناقصة (التاريخ، عدد الأشخاص والبالغين والأطفال، وهل تم حجز الطيران أم لا).
-- ""handoff_sales"": **يُمنع منعاً باتاً استخدام هذا الخيار من أول المحادثة أو بمجرد أن يسأل العميل عن الطيران أو التكاليف!** اسأل العميل واجمع بياناته أولاً (العدد، التواريخ، وهل الطيران مشمول). لا تستخدم handoff_sales إلا إذا طلب العميل صراحة التحدث مع موظف، أو بعد جمع البيانات الأساسية منه كاملة.
+- ""show_packages"": اختر هذا الخيار لعرض الباقات السياحية الجاهزة عند استفسار العميل عن باقات أو عروض وجهة معينة (وليس لطلبات تذاكر الطيران المنفردة). **تنبيه صارم:** إذا كانت باقات الوجهة قد عُرضت للعميل سابقاً في سياق المحادثة أو كان العميل يزودك بتواريخ/عدد أيام/أشخاص أو يطلب باقة مخصصة، يُمنع منعاً باتاً اختيار ""show_packages"" مرة أخرى! اختر ""ask_details"" واسأله مباشرة عن المعلومة التالية الناقصة.
+- ""ask_details"": اختر هذا الخيار إذا طلب العميل تفاصيل باقة أو تصميم رحلة أو تذاكر طيران أو فنادق، واسأله بلطف عن البيانات الناقصة فقط دون تكرار.
+- ""handoff_sales"": لحجوزات الباقات السياحية بعد استيفاء البيانات الأساسية أو بطلب صريح من العميل. **يُمنع استخدامه من أول رسالة قبل معرفة التفاصيل**.
 - ""show_destinations"": لاستكشاف الوجهات المتاحة بشكل عام.
-- ""handoff_flights"": لحجوزات تذاكر الطيران المستقلة فقط. (**تنبيه صارم:** يُمنع منعاً باتاً اختيار handoff_flights في أول المحادثة أو قبل استيفاء بيانات التذكرة! استخدم أولاً ""ask_details"" لسؤال العميل عن: 1. مطار المغادرة ومطار الوصول وهل الرحلة ذهاب فقط أم ذهاب وعودة، 2. تواريخ السفر والعودة، 3. عدد المسافرين ودرجة السفر. بعد أن يزودك العميل بهذه البيانات الثلاثة، استخدم حينها handoff_flights).
+- ""handoff_flights"": لحجوزات تذاكر الطيران المستقلة فقط (بدون بكج سياحي). إذا كان العميل قد حدد مطار المغادرة والوجهة وموعد السفر، اختر ""handoff_flights"" فوراً لتحويله لمسؤول التذاكر. وإذا كانت بيانات التذكرة ناقصة، استخدم أولاً ""ask_details"" لسؤاله عن (مطار المغادرة والوصول، تواريخ الذهاب والعودة، وعدد المسافرين).
 - ""handoff_hotels"": لحجوزات الفنادق المستقلة فقط (بدون طيران أو بكج). (تنبيه هام: استخدم هذا الإجراء فقط بعد أن تستخدم الإجراء ""ask_details"" لسؤال العميل عن: المدينة، تاريخ الدخول والخروج، وعدد الأشخاص. يُمنع التحويل قبل جمع هذه المعلومات).
 - ""handoff_visa"": لأي استفسار يخص الفيزا والتأشيرات.
 - ""handoff_license"": لاستخراج الرخص الدولية (رخصة القيادة الدولية).
@@ -1719,6 +1726,13 @@ namespace Core.Application.Services.WhatsApp
 3. ✈️ **تذاكر الطيران** (هل تم حجز الطيران الدولي أم تحتاجون حجزه ومن أي مطار؟).
 4. 🏨 **فئة الفنادق والإقامة** (فنادق 4 نجوم، 5 نجوم، أو شقق الفندقية).
 5. 💰 **الميزانية والتفضيلات الخاصة** (الميزانية التقديرية أو أي ملاحظات وتفضيلات خاصة).
+
+0. قاعدة الاستخلاص الفوري ومنع التكرار البات (Strict Zero-Redundancy & Entity Extraction):
+- افحص رسالة العميل وتاريخ المحادثة كاملاً واستخرج العناصر الـ 5 (الوجهة، التواريخ والمدة، عدد الأشخاص والأطفال، الطيران، الفنادق والميزانية).
+- أي معلومة ذكرها العميل في أي رسالة سابقة أو في رسالته الحالية، تُعتبر مكتملة ومسجلة فوراً، ويُمنع منعاً باتاً السؤال عنها أو تكرار الاستفسار عنها بأي صيغة!
+- اسأل فقط عن العناصر المتبقية والناقصة حصراً.
+- في حال قام العميل بتعديل أي بيان أو غير رأيه (مثل تغيير الوجهة أو التواريخ أو عدد الأشخاص)، اعتمد فوراً أحدث معلومة ذكرها وتجاهل القديمة.
+- إذا كان العميل قد ذكر كافة تفاصيل الرحلة كاملة في رسالته، لا تسأله أي سؤال إضافي، واختر إجراء ""handoff_sales"" فوراً لتوليد ملخص الحجز وتحويله للمبيعات.
 
 1. منع الديباجات والمقدمات المكررة نهائياً (Direct Questions Only): يُمنع منعاً باتاً البدء بعبارات تمهيدية مثل (أبشر، تمام، حياك الله، لتجهيز أفضل عرض لـ...، لتصميم باقة مميزة لـ...، بناءً على طلبك...، يسعدنا...). يجب أن تكون أول كلمة في ردك هي السؤال المباشر فوراً (مثال: ""هل تم حجز الطيران الدولي ومن أي مطار تفضلون المغادرة؟"" أو ""ما هي فئة الفنادق المفضلة لديكم (4 نجوم أم 5 نجوم) وهل تتوفر ميزانية تقديرية؟"").
 
@@ -1744,6 +1758,8 @@ namespace Core.Application.Services.WhatsApp
 11. خدمات تجديد عقود العمالة المنزلية والمعاملات: نحن نوفر كافة معاملات وتجديد عقود العمالة المنزلية (مثل الفلبينية وغيرها). عند استفسار العميل عن تجديد عقد عاملة أو أي معاملة رسمية، أكد توفر الخدمة مباشرة وزوده برقم مسؤول المعاملات والعقود المباشر عبر واتساب (0532737645) واختر إجراء ""handoff_visa"" ليتم تحويل المحادثة له فوراً.
 
 12. الوجهات المخصصة ومنع الروابط الوهمية (Zero Fake Packages): الباقات الجاهزة المتاحة للعرض الفوري هي المسجلة في النظام فقط. لأي وجهة أخرى (مثل سويسرا، النمسا، إيطاليا، فرنسا، ألمانيا، المالديف... إلخ)، يُمنع منعاً باتاً اختراع باقات أو أسعار أو روابط pkg- من خيالك! استخدم دائماً إجراء ""ask_details"" لسؤال العميل عن التواريخ والأشخاص لتصميم بكج مخصص له عبر المبيعات.
+
+13. استفسارات التوظيف والتدريب التعاوني والشراكات (Jobs & Training & B2B): نحن نرحب بجميع الكفاءات والشركاء وطلاب الجامعات. عند استفسار العميل عن وظائف شاغرة، تدريب صيفي أو تعاوني، أو شراكات تجارية، أجب بلطف بتقديم البريد الإلكتروني الرسمي للإدارة (almulhim_travel@yahoo.com) مع التوضيح بإمكانية إرسال السيرة الذاتية (CV) أو عرض الشراكة وسيتم التواصل معه من الإدارة، واختر إجراء ""handoff_support"" ليتم تحويل المحادثة للدعم الإداري.
 
 الرد يجب أن يكون حصراً بصيغة JSON كالتالي:
 {
@@ -1896,15 +1912,6 @@ namespace Core.Application.Services.WhatsApp
                         {
                             action = "ask_details";
                         }
-                        else if (!packagesAlreadySentForThisDest && !string.IsNullOrEmpty(targetDest) && action != "handoff_sales" && action != "handoff_visa" && action != "handoff_flights")
-                        {
-                            // If packages exist in DB for this destination and haven't been shown yet, trigger show_packages to render full URL links
-                            var testPkgText = await GetPackagesForSpecificDestAsync(targetDest, "MainMenu");
-                            if (!string.IsNullOrWhiteSpace(testPkgText) && testPkgText.Contains("almulhimtravel.com/package"))
-                            {
-                                action = "show_packages";
-                            }
-                        }
 
                         return new Core.Application.Services.WhatsApp.Models.AISupervisorResult
                         {
@@ -1921,8 +1928,8 @@ namespace Core.Application.Services.WhatsApp
                         {
                             return new Core.Application.Services.WhatsApp.Models.AISupervisorResult
                             {
-                                Action = "respond",
-                                Response = "عذراً، أواجه ضغطاً في معالجة طلبك الآن. هل ترغب في حجز باقة سياحية وتحديد الوجهة وعدد الأشخاص؟"
+                                Action = "handoff_sales",
+                                Response = "أهلاً بك! تم استلام رسالتك وتفاصيل طلبك، وجاري تحويلك للمختصين لمساعدتك فوراً 👨‍💼"
                             };
                         }
                     }
@@ -1930,8 +1937,8 @@ namespace Core.Application.Services.WhatsApp
                 
                 return new Core.Application.Services.WhatsApp.Models.AISupervisorResult
                 {
-                    Action = "respond",
-                    Response = "عذراً، أواجه ضغطاً في معالجة طلبك الآن. هل ترغب في حجز باقة سياحية وتحديد الوجهة وعدد الأشخاص؟"
+                    Action = "handoff_sales",
+                    Response = "أهلاً بك! تم استلام رسالتك وتفاصيل طلبك، وجاري تحويلك للمختصين لمساعدتك فوراً 👨‍💼"
                 };
             }
             catch (Exception ex)
@@ -1939,8 +1946,8 @@ namespace Core.Application.Services.WhatsApp
                 Console.WriteLine($"AI Supervisor Error: {ex.Message}");
                 return new Core.Application.Services.WhatsApp.Models.AISupervisorResult
                 {
-                    Action = "respond",
-                    Response = "هل ترغبون في إضافة تذاكر الطيران وتحديد مطار المغادرة وفئة الفنادق؟"
+                    Action = "handoff_sales",
+                    Response = "أهلاً بك! تم استلام رسالتك وتفاصيل طلبك، وجاري تحويلك للمختصين لمساعدتك فوراً 👨‍💼"
                 };
             }
         }

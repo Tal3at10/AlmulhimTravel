@@ -1,6 +1,8 @@
 using System;
-using System.Linq;
 using System.IO;
+using System.Linq;
+using System.Collections.Generic;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Infrastructure.Persistence.Data;
 
@@ -9,54 +11,88 @@ optionsBuilder.UseSqlServer("Server=db41528.public.databaseasp.net; Database=db4
 
 using var db = new AlmulhemDbContext(optionsBuilder.Options);
 
+var cutoff = DateTime.UtcNow.AddDays(-7);
+Console.WriteLine($"Querying conversations since {cutoff:yyyy-MM-dd HH:mm:ss} UTC...");
+
 var conversations = db.WhatsAppConversations
+    .Where(c => c.StartedAt >= cutoff)
     .OrderByDescending(c => c.StartedAt)
-    .Take(250)
     .ToList();
 
-var dumpPathTxt = @"e:\Projects\AlMulhim-Travel\backend\recent_250_conversations.txt";
-var dumpPathJson = @"e:\Projects\AlMulhim-Travel\backend\recent_250_conversations.json";
+Console.WriteLine($"Total conversations found in last 7 days: {conversations.Count}");
 
-using var writer = new StreamWriter(dumpPathTxt);
-var jsonList = new System.Collections.Generic.List<object>();
+var convoIds = conversations.Select(c => c.Id).ToHashSet();
+
+// Fetch all messages for these conversations
+var allMessages = db.WhatsAppMessages
+    .Where(m => convoIds.Contains(m.ConversationId))
+    .OrderBy(m => m.SentAt)
+    .ToList();
+
+Console.WriteLine($"Total messages found: {allMessages.Count}");
+
+var messagesByConvo = allMessages
+    .GroupBy(m => m.ConversationId)
+    .ToDictionary(g => g.Key, g => g.OrderBy(m => m.SentAt).ToList());
+
+var structuredConvos = new List<object>();
 
 foreach (var conv in conversations)
 {
-    writer.WriteLine($"==================================================");
-    writer.WriteLine($"Conversation ID: {conv.Id} (Freshchat: {conv.FreshchatConversationId})");
-    writer.WriteLine($"Phone: {conv.CustomerPhone} | Mode: {conv.Mode}");
-    writer.WriteLine($"Started: {conv.StartedAt.ToLocalTime()}");
-    writer.WriteLine($"Notes: {conv.Notes}");
-    writer.WriteLine($"--------------------------------------------------");
+    var msgs = messagesByConvo.TryGetValue(conv.Id, out var mList) ? mList : new List<Core.Domain.Entities.WhatsApp.WhatsAppMessage>();
+    
+    var formattedMsgs = msgs.Select(m => new {
+        Id = m.Id,
+        Sender = m.SenderType.ToString(),
+        Direction = m.Direction.ToString(),
+        Time = m.SentAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+        Content = m.Content
+    }).ToList();
 
-    var messages = db.WhatsAppMessages
-        .Where(m => m.ConversationId == conv.Id)
-        .OrderBy(m => m.SentAt)
-        .Select(m => new {
-            Sender = m.SenderType.ToString(),
-            Time = m.SentAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-            Content = m.Content
-        })
-        .ToList();
-
-    foreach (var msg in messages)
-    {
-        writer.WriteLine($"[{msg.Time}] {msg.Sender}: {msg.Content}");
-    }
-    writer.WriteLine();
-
-    jsonList.Add(new {
+    structuredConvos.Add(new {
         Id = conv.Id,
         FreshchatConversationId = conv.FreshchatConversationId,
-        Phone = conv.CustomerPhone,
+        CustomerPhone = conv.CustomerPhone,
+        CustomerName = conv.CustomerName,
         Mode = conv.Mode.ToString(),
+        AssignedAgentName = conv.AssignedAgentName,
         StartedAt = conv.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+        LastMessageAt = conv.LastMessageAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
         Notes = conv.Notes,
-        Messages = messages
+        MessageCount = formattedMsgs.Count,
+        Messages = formattedMsgs
     });
 }
 
-var jsonString = System.Text.Json.JsonSerializer.Serialize(jsonList, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-File.WriteAllText(dumpPathJson, jsonString);
+// Ensure output directories exist
+var outputDir = @"C:\Users\7oda\.gemini\antigravity\brain\8639df1b-3ed9-481b-9065-db6b8ab42df0\scratch";
+if (!Directory.Exists(outputDir))
+{
+    Directory.CreateDirectory(outputDir);
+}
 
-Console.WriteLine($"Dumped {conversations.Count} conversations to {dumpPathTxt} and {dumpPathJson}");
+// Split into 7 chunks
+int numChunks = 7;
+int total = structuredConvos.Count;
+int chunkSize = (int)Math.Ceiling((double)total / numChunks);
+
+for (int i = 0; i < numChunks; i++)
+{
+    var chunk = structuredConvos.Skip(i * chunkSize).Take(chunkSize).ToList();
+    var chunkFilePath = Path.Combine(outputDir, $"chunk_{i + 1}.json");
+    var json = JsonSerializer.Serialize(chunk, new JsonSerializerOptions { WriteIndented = true });
+    File.WriteAllText(chunkFilePath, json);
+    Console.WriteLine($"Chunk {i + 1}: {chunk.Count} conversations written to {chunkFilePath}");
+}
+
+// Summary overview file
+var summaryOverview = new {
+    TotalConversations = total,
+    TotalMessages = allMessages.Count,
+    CutoffDateUtc = cutoff.ToString("yyyy-MM-dd HH:mm:ss"),
+    ChunksCount = numChunks,
+    ChunkSizes = Enumerable.Range(0, numChunks).Select(i => structuredConvos.Skip(i * chunkSize).Take(chunkSize).Count()).ToList()
+};
+
+File.WriteAllText(Path.Combine(outputDir, "summary_overview.json"), JsonSerializer.Serialize(summaryOverview, new JsonSerializerOptions { WriteIndented = true }));
+Console.WriteLine("All 7 chunks successfully generated!");

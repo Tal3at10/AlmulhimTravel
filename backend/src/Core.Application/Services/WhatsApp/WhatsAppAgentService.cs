@@ -237,18 +237,30 @@ namespace Core.Application.Services.WhatsApp
                         return;
 
                     case "handoff_visa":
-                        var visaFixedMsg = "لأستخراج الفيزا السياحية يرجى التواصل مع الموظف عبر واتساب فقط\nمن الأحد حتى الخميس\nمن الساعة 4:00 مساء حتى 9:00 مساء\nعلى الرقم\n0532737645";
-                        await TriggerAgentHandoff(freshchatConversationId, conversation, visaFixedMsg, "9f5ef661-5e87-4f7e-a11d-9372bd08a1b4");
+                        var visaFixedMsg = !string.IsNullOrWhiteSpace(aiResult.Response) && (aiResult.Response.Contains("0532737645") || aiResult.Response.Contains("واتساب"))
+                            ? aiResult.Response
+                            : "لأستخراج الفيزا السياحية يرجى التواصل مع الموظف عبر واتساب فقط\nمن الأحد حتى الخميس\nمن الساعة 4:00 مساء حتى 9:00 مساء\nعلى الرقم\n0532737645";
+                        conversation.Notes = "[STATE:MainMenu]";
+                        _unitOfWork.WhatsAppConversations.Update(conversation);
+                        await SendAndSaveResponseAsync(conversation, visaFixedMsg);
                         return;
 
                     case "handoff_license":
-                        var licenseMsg = "لإصدار الرخصة الدولية، حياك الله بزيارتنا في أحد فروعنا:\n\n📍 فرع الهفوف:\nhttps://maps.app.goo.gl/fz8yzS25KZLz6PeZ8\n\n📍 فرع المبرز:\nhttps://maps.app.goo.gl/UcYSDcmsW22uWqNi6";
-                        await TriggerAgentHandoff(freshchatConversationId, conversation, licenseMsg, "9f5ef661-5e87-4f7e-a11d-9372bd08a1b4");
+                        var licenseMsg = !string.IsNullOrWhiteSpace(aiResult.Response) && aiResult.Response.Contains("http")
+                            ? aiResult.Response
+                            : "لإصدار الرخصة الدولية، حياك الله بزيارتنا في أحد فروعنا:\n\n📍 فرع الهفوف:\nhttps://maps.app.goo.gl/fz8yzS25KZLz6PeZ8\n\n📍 فرع المبرز:\nhttps://maps.app.goo.gl/UcYSDcmsW22uWqNi6";
+                        conversation.Notes = "[STATE:MainMenu]";
+                        _unitOfWork.WhatsAppConversations.Update(conversation);
+                        await SendAndSaveResponseAsync(conversation, licenseMsg);
                         return;
 
                     case "handoff_transport":
-                        var transportMsg = "لحجوزات التنقلات والمواصلات، يرجى التواصل مع القسم المختص (الأخ جعفر) عبر الرقم:\n0502447741";
-                        await TriggerAgentHandoff(freshchatConversationId, conversation, transportMsg, "9f5ef661-5e87-4f7e-a11d-9372bd08a1b4");
+                        var transportMsg = !string.IsNullOrWhiteSpace(aiResult.Response) && aiResult.Response.Contains("0502447741")
+                            ? aiResult.Response
+                            : "لحجوزات التنقلات والمواصلات، يرجى التواصل مع القسم المختص (الأخ جعفر) عبر الرقم:\n0502447741";
+                        conversation.Notes = "[STATE:MainMenu]";
+                        _unitOfWork.WhatsAppConversations.Update(conversation);
+                        await SendAndSaveResponseAsync(conversation, transportMsg);
                         return;
 
                     case "handoff_followup":
@@ -482,18 +494,30 @@ namespace Core.Application.Services.WhatsApp
                         return;
 
                     case "handoff_visa":
-                        var visaFixedMsg = "لأستخراج الفيزا السياحية يرجى التواصل مع الموظف عبر واتساب فقط\nمن الأحد حتى الخميس\nمن الساعة 4:00 مساء حتى 9:00 مساء\nعلى الرقم\n0532737645";
-                        await TriggerAgentHandoff(freshchatConversationId, conversation, visaFixedMsg, "9f5ef661-5e87-4f7e-a11d-9372bd08a1b4");
+                        var visaFixedMsg2 = !string.IsNullOrWhiteSpace(aiResult.Response) && (aiResult.Response.Contains("0532737645") || aiResult.Response.Contains("واتساب"))
+                            ? aiResult.Response
+                            : "لأستخراج الفيزا السياحية يرجى التواصل مع الموظف عبر واتساب فقط\nمن الأحد حتى الخميس\nمن الساعة 4:00 مساء حتى 9:00 مساء\nعلى الرقم\n0532737645";
+                        conversation.Notes = "[STATE:MainMenu]";
+                        _unitOfWork.WhatsAppConversations.Update(conversation);
+                        await SendAndSaveResponseAsync(conversation, visaFixedMsg2);
                         return;
 
                     case "handoff_license":
-                        var licenseMsg = "لإصدار الرخصة الدولية، حياك الله بزيارتنا في أحد فروعنا:\n\n📍 فرع الهفوف:\nhttps://maps.app.goo.gl/fz8yzS25KZLz6PeZ8\n\n📍 فرع المبرز:\nhttps://maps.app.goo.gl/UcYSDcmsW22uWqNi6";
-                        await TriggerAgentHandoff(freshchatConversationId, conversation, licenseMsg, "9f5ef661-5e87-4f7e-a11d-9372bd08a1b4");
+                        var licenseMsg2 = !string.IsNullOrWhiteSpace(aiResult.Response) && aiResult.Response.Contains("http")
+                            ? aiResult.Response
+                            : "لإصدار الرخصة الدولية، حياك الله بزيارتنا في أحد فروعنا:\n\n📍 فرع الهفوف:\nhttps://maps.app.goo.gl/fz8yzS25KZLz6PeZ8\n\n📍 فرع المبرز:\nhttps://maps.app.goo.gl/UcYSDcmsW22uWqNi6";
+                        conversation.Notes = "[STATE:MainMenu]";
+                        _unitOfWork.WhatsAppConversations.Update(conversation);
+                        await SendAndSaveResponseAsync(conversation, licenseMsg2);
                         return;
 
                     case "handoff_transport":
-                        var transportMsg = "لحجوزات التنقلات والمواصلات، يرجى التواصل مع القسم المختص (الأخ جعفر) عبر الرقم:\n0502447741";
-                        await TriggerAgentHandoff(freshchatConversationId, conversation, transportMsg, "9f5ef661-5e87-4f7e-a11d-9372bd08a1b4");
+                        var transportMsg2 = !string.IsNullOrWhiteSpace(aiResult.Response) && aiResult.Response.Contains("0502447741")
+                            ? aiResult.Response
+                            : "لحجوزات التنقلات والمواصلات، يرجى التواصل مع القسم المختص (الأخ جعفر) عبر الرقم:\n0502447741";
+                        conversation.Notes = "[STATE:MainMenu]";
+                        _unitOfWork.WhatsAppConversations.Update(conversation);
+                        await SendAndSaveResponseAsync(conversation, transportMsg2);
                         return;
 
                     case "handoff_followup":

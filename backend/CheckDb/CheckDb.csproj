@@ -1,7 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\src\Infrastructure.Persistence\Infrastructure.Persistence.csproj" />
+    <ProjectReference Include="..\src\Infrastructure.Shared\Infrastructure.Shared.csproj" />
+    <ProjectReference Include="..\src\Core.Application\Core.Application.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

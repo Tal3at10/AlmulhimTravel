@@ -13,6 +13,7 @@ namespace Core.Application.Services.WhatsApp.Models
         public List<string> MissingFields { get; set; } = new();
         // Enhanced summary fields (optional - null if not provided by AI)
         public bool? FlightBooked { get; set; }
+        public string? CabinClass { get; set; }
         public string? HotelPreference { get; set; }
         public string? SpecialNotes { get; set; }
     }

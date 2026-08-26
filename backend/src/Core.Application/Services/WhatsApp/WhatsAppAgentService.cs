@@ -599,7 +599,14 @@ namespace Core.Application.Services.WhatsApp
                                     if (input == "1")
                                     {
                                         var allMsgs = await _unitOfWork.WhatsAppMessages.FindAllAsync(m => m.ConversationId == conversation.Id);
-                                        var custMsgs = allMsgs.Where(m => m.SenderType == MessageSender.Customer && m.Content != "1" && m.Content != "0" && m.Content != "00" && m.Content != "start" && m.Content != "99").ToList();
+                                        var custMsgs = allMsgs.Where(m => m.SenderType == MessageSender.Customer 
+                                                                       && m.Content != "1" && m.Content != "0" && m.Content != "00" && m.Content != "start" && m.Content != "99"
+                                                                       && !IsGreeting(m.Content ?? "")
+                                                                       && !(m.Content?.Trim().StartsWith("السلام") == true)
+                                                                       && !(m.Content?.Trim().StartsWith("مرحبا") == true)
+                                                                       && !(m.Content?.Trim().StartsWith("مساء") == true)
+                                                                       && !(m.Content?.Trim().StartsWith("صباح") == true)
+                                                                       && !(m.Content?.Trim().StartsWith("هلا") == true)).ToList();
                                         var detailedMsg = custMsgs.LastOrDefault(m => (m.Content?.Trim().Length ?? 0) > 8);
 
                                         if (detailedMsg != null && !string.IsNullOrWhiteSpace(detailedMsg.Content))
@@ -1311,7 +1318,7 @@ namespace Core.Application.Services.WhatsApp
 📅 التاريخ: [تاريخ أو شهر السفر الأخير أو غير محدد]
 ⏱️ المدة: [عدد الأيام أو غير محدد]
 💰 الميزانية: [الميزانية أو غير محدد]
-✈️ الطيران: [هل تم حجز الطيران أم لا أو غير معروف]
+✈️ الطيران: [حالة الحجز، مطار المغادرة، درجة السفر كـ بزنس/اقتصادي إن ذكرت، أو غير محدد]
 🏨 الفنادق: [فئة الفنادق إن ذكرت أو غير محدد]
 📌 ملاحظات: [أي تفاصيل أو طلبات خاصة من العميل بخصوص رحلته الأخيرة]
 ━━━━━━━
@@ -1713,19 +1720,19 @@ namespace Core.Application.Services.WhatsApp
 - ""show_destinations"": لاستكشاف الوجهات المتاحة بشكل عام.
 - ""handoff_flights"": لحجوزات تذاكر الطيران المستقلة فقط (بدون بكج سياحي). إذا كان العميل قد حدد مطار المغادرة والوجهة وموعد السفر، اختر ""handoff_flights"" فوراً لتحويله لمسؤول التذاكر. وإذا كانت بيانات التذكرة ناقصة، استخدم أولاً ""ask_details"" لسؤاله عن (مطار المغادرة والوصول، تواريخ الذهاب والعودة، وعدد المسافرين).
 - ""handoff_hotels"": لحجوزات الفنادق المستقلة فقط (بدون طيران أو بكج). (تنبيه هام: استخدم هذا الإجراء فقط بعد أن تستخدم الإجراء ""ask_details"" لسؤال العميل عن: المدينة، تاريخ الدخول والخروج، وعدد الأشخاص. يُمنع التحويل قبل جمع هذه المعلومات).
-- ""handoff_visa"": لأي استفسار يخص الفيزا والتأشيرات.
+- ""handoff_visa"": لطلبات استخراج التأشيرات والفيزا المستقلة فقط (بدون باقة أو طيران). **تنبيه حاسم وصارم:** إذا كان العميل يصمم أو يستفسر عن باقة سياحية أو طيران وسأل سؤالاً فرعياً عن التأشيرة (مثل: كم مدة استخراجها، شروطها، هل تحتاج فيزا)، يُمنع منعاً باتاً اختيار ""handoff_visa""! أجب على سؤاله مباشرة باستخدام ""respond"" أو ""ask_details"" من واقع قاعدة المعرفة واستمر في مسار الباقة دون تحويل للفيزا.
 - ""handoff_license"": لاستخراج الرخص الدولية (رخصة القيادة الدولية).
-- ""handoff_transport"": لحجوزات التنقلات والمواصلات فقط.
+- ""handoff_transport"": لخدمات المواصلات، تأجير السيارات، والتوصيل والاستقبال من وإلى المطارات (مطار الدمام، الهفوف، الرياض) لجميع المشاوير بما في ذلك توصيل العوائل والعمالة المنزلية/الخادمات مع الأخ جعفر (0502447741).
 - ""handoff_support"": للشكاوى الفنية والتنسيق.
 - ""handoff_followup"": إذا كان العميل يستفسر عن حجز قائم مسبقاً لمتابعة رحلته.
 - ""respond"": للرد المباشر والإجابة على استفسارات العميل وتزويده بالمعلومات مع سؤاله عن تفاصيل رحلته. (إذا سأل عن رحلات الكروز البحرية Cruise، استخدم ask_details لسؤاله عن الوجهة البحرية وموعد السفر وعدد الأشخاص ونوع الكابينة).
 
-الأسئلة الـ 5 الأساسية المتعارف عليها لتجميع طلب العميل:
-1. 👥 **عدد المسافرين والأشخاص** (عدد البالغين، والأطفال وأعمارهم).
-2. 📅 **تاريخ وموعد السفر** (أو الشهر التقديري للرحلة).
-3. ✈️ **تذاكر الطيران** (هل تم حجز الطيران الدولي أم تحتاجون حجزه ومن أي مطار؟).
-4. 🏨 **فئة الفنادق والإقامة** (فنادق 4 نجوم، 5 نجوم، أو شقق الفندقية).
-5. 💰 **الميزانية والتفضيلات الخاصة** (الميزانية التقديرية أو أي ملاحظات وتفضيلات خاصة).
+الأسئلة الـ 5 الأساسية لتجميع طلب العميل (اسأل سؤال واحد فقط في كل رسالة):
+1. 👥 **عدد المسافرين** (كم شخص بالغ وأطفال وأعمارهم؟).
+2. 📅 **تاريخ السفر** (متى تبون تسافرون تقريباً؟).
+3. ✈️ **مطار المغادرة** (من أي مطار تفضلون المغادرة؟). ⚠️ إذا قال العميل ""شامل كل شيء"" أو ""بكج كامل"" أو ""مع الطيران""، فهذا يعني أنه يريد الوكالة تحجز الطيران، فلا تسأله ""هل تم حجز الطيران؟"" أبداً.
+4. 🏨 **فئة الفنادق** (4 نجوم أم 5 نجوم أم شقق فندقية؟).
+5. 💰 **الميزانية** (هل في ميزانية تقديرية؟).
 
 0. قاعدة الاستخلاص الفوري ومنع التكرار البات (Strict Zero-Redundancy & Entity Extraction):
 - افحص رسالة العميل وتاريخ المحادثة كاملاً واستخرج العناصر الـ 5 (الوجهة، التواريخ والمدة، عدد الأشخاص والأطفال، الطيران، الفنادق والميزانية).
@@ -1734,7 +1741,7 @@ namespace Core.Application.Services.WhatsApp
 - في حال قام العميل بتعديل أي بيان أو غير رأيه (مثل تغيير الوجهة أو التواريخ أو عدد الأشخاص)، اعتمد فوراً أحدث معلومة ذكرها وتجاهل القديمة.
 - إذا كان العميل قد ذكر كافة تفاصيل الرحلة كاملة في رسالته، لا تسأله أي سؤال إضافي، واختر إجراء ""handoff_sales"" فوراً لتوليد ملخص الحجز وتحويله للمبيعات.
 
-1. منع الديباجات والمقدمات المكررة نهائياً (Direct Questions Only): يُمنع منعاً باتاً البدء بعبارات تمهيدية مثل (أبشر، تمام، حياك الله، لتجهيز أفضل عرض لـ...، لتصميم باقة مميزة لـ...، بناءً على طلبك...، يسعدنا...). يجب أن تكون أول كلمة في ردك هي السؤال المباشر فوراً (مثال: ""هل تم حجز الطيران الدولي ومن أي مطار تفضلون المغادرة؟"" أو ""ما هي فئة الفنادق المفضلة لديكم (4 نجوم أم 5 نجوم) وهل تتوفر ميزانية تقديرية؟"").
+1. منع الديباجات والمقدمات والتلخيص نهائياً (Zero Preamble & Zero Echoing): يُمنع منعاً باتاً البدء بعبارات تمهيدية أو تلخيصية مثل (أبشر، تمام، حياك الله، أهلاً بك، لتجهيز أفضل عرض لـ...، لتصميم باقة لـ...، بناءً على طلبك...، لشخصين وطفل...، يسعدنا...). ويُمنع تكرار أو إعادة نطق ما ذكره العميل. أول كلمة في ردك يجب أن تكون السؤال مباشرة بدون أي مقدمة. (مثال صحيح: ""من أي مطار تفضلون المغادرة؟"") (مثال خاطئ ممنوع: ""لتجهيز أفضل عرض لتايلند لشخصين وطفل، من أي مطار تفضلون المغادرة؟"").
 
 2. عدم إعادة عرض الباقات الجاهزة (No Duplicate Packages): إذا عُرضت الباقات الجاهزة للعميل مسبقاً في المحادثة، لا تكرر إرسال الباقات مرة أخرى أبداً! اطرح السؤال التالي فوراً لتجميع بقية التواريخ والتفاصيل.
 
@@ -1744,10 +1751,11 @@ namespace Core.Application.Services.WhatsApp
 - العبارات الفردية مثل (أنا لحالي، بنت لحالي، لوحدي، شخص واحد، بمفردي) تعني تلقائياً وبدقة: [عدد البالغين: 1، الأطفال: 0]، ويُمنع منعاً باتاً سؤال العميل مجدداً عن عدد البالغين أو الأطفال إذا ذكر أياً منها!
 - العبارات الثنائية مثل (شخصين، زوجين، أنا وزوجي، أنا وزوجتي، شهر عسل) تعني تلقائياً: [عدد البالغين: 2، الأطفال: 0].
 - الكلمات البسيطة المباشرة مثل (مزيج، الرياض، لا، شقق، 4 نجوم، كبار، اي نعم، سبتمبر) هي إجابات كاملة وصحيحة! افهمها واعتبرها إجابة واطرح السؤال التالي المتبقي فوراً، ولا تكرر نفس السؤال إذا أجاب العميل عليه.
+- عبارات الشمول مثل (شامل كل شيء، شامل كل شي، بكج كامل، مع الطيران، شامل الطيران، الحجز شامل) تعني أن العميل يريد من الوكالة حجز كل شيء (طيران + فنادق + جولات). يُمنع منعاً باتاً سؤاله ""هل تم حجز الطيران الدولي؟""! اسأله فقط عن مطار المغادرة وتاريخ السفر.
 
 6. الاستيعاب المرن غير الخطي للأسئلة (Non-linear Slot Extraction): إذا كنت تسأل العميل عن الفنادق وأجابك بمعلومة تخص الطيران أو موعد السفر (أو العكس)، سجّل المعلومة التي ذكرها فوراً في خانتها واعتبرها مكتملة، واطرح السؤال التالي المتبقي بلباقة دون إعادة السؤال السابق أبداً لمنع حلقات التكرار.
 
-7. التعامل مع استفسارات درجات السفر (Business Class & Economy): إذا سأل العميل عن درجة السفر (درجة رجال الأعمال، بزنس، سياحية)، أجب بإيجاز بأن الباقات الأساسية تشمل الدرجة الاقتصادية وتتوفر إمكانية الترقية لدرجة رجال الأعمال (Business) حسب رغبته، ثم اسأله عن مطار المغادرة والتواريخ لإعداد العرض الأنسب له.
+7. استخلاص درجات السفر (Business Class & Economy): إذا ذكر العميل درجة السفر (درجة رجال الأعمال، بزنس، Business Class، أو سياحية Economy)، سجّل الدرجة فوراً في خانة ""cabin_class""، ويُمنع منعاً باتاً السؤال مجدداً عن درجة السفر أو تخيير العميل بينهما إذا كان قد حددها مسبقاً! وإذا لم يحددها وسأل عن الفرق، وضح أن الباقات الأساسية اقتصادية مع إمكانية الترقية لدرجة رجال الأعمال.
 
 8. الاحتفاظ بالوجهة (Destination Memory): بمجرد أن يذكر العميل اسم مدينة أو دولة (مثل تركيا أو بالي)، احتفظ بها في خانة ""destination"" طوال المحادثة ولا تنسها أو تحذفها أبداً حتى لو لم يكتمل الحجز.
 
@@ -1761,6 +1769,10 @@ namespace Core.Application.Services.WhatsApp
 
 13. استفسارات التوظيف والتدريب التعاوني والشراكات (Jobs & Training & B2B): نحن نرحب بجميع الكفاءات والشركاء وطلاب الجامعات. عند استفسار العميل عن وظائف شاغرة، تدريب صيفي أو تعاوني، أو شراكات تجارية، أجب بلطف بتقديم البريد الإلكتروني الرسمي للإدارة (almulhim_travel@yahoo.com) مع التوضيح بإمكانية إرسال السيرة الذاتية (CV) أو عرض الشراكة وسيتم التواصل معه من الإدارة، واختر إجراء ""handoff_support"" ليتم تحويل المحادثة للدعم الإداري.
 
+14. استفسارات التوصيل للمطار ونقل العمالة والمشاوير (Airport Transfers & Transport): إذا طلب العميل خدمة توصيل أو استقبال من/إلى المطار (مثل مطار الدمام، الهفوف، الرياض) أو توصيل خادمة/عمالة أو عائلة، أكد توفر الخدمة فوراً وزوده برقم مسؤول المواصلات والتوصيل (الأخ جعفر: 0502447741) واختر إجراء ""handoff_transport"".
+
+15. استفسارات التأشيرات ومنع التخمين (No Guessing on Visas): إذا سأل العميل عن مدة استخراج الفيزا أو شروطها دون تحديد اسم الدولة (مثل: ""كم مدة استخراج الفيزا"")، **يُمنع منعاً باتاً افتراض أنها شنغن أو ذكر أي مدة من خيالك**! اسأله فوراً: ""لأي دولة أو وجهة ترغب باستخراج التأشيرة؟"". وعند تحديد الدولة، التزم بمدد قاعدة المعرفة (الإلكترونية مثل بريطانيا وفيتنام خلال ساعات إلى 3-5 أيام، والشنغن وأمريكا تعتمد على حجز موعد البصمة بالسفارة).
+
 الرد يجب أن يكون حصراً بصيغة JSON كالتالي:
 {
   ""action"": ""..."",
@@ -1771,6 +1783,7 @@ namespace Core.Application.Services.WhatsApp
      ""duration_days"": 5,
      ""adults"": 2,
      ""children"": 0,
+     ""cabin_class"": ""Business / Economy / unspecified"",
      ""max_budget"": 5000
   }
 }");
@@ -1841,6 +1854,7 @@ namespace Core.Application.Services.WhatsApp
                                 DurationDays = pElement.TryGetProperty("duration_days", out var dd) && dd.ValueKind == JsonValueKind.Number ? dd.GetInt32() : 0,
                                 Adults = pElement.TryGetProperty("adults", out var ad) && ad.ValueKind == JsonValueKind.Number ? ad.GetInt32() : 2,
                                 Children = pElement.TryGetProperty("children", out var ch) && ch.ValueKind == JsonValueKind.Number ? ch.GetInt32() : 0,
+                                CabinClass = pElement.TryGetProperty("cabin_class", out var cc) ? cc.GetString() ?? "" : "",
                                 MaxBudget = pElement.TryGetProperty("max_budget", out var mb) && mb.ValueKind == JsonValueKind.Number ? mb.GetDecimal() : 0
                             };
                         }
@@ -1875,11 +1889,44 @@ namespace Core.Application.Services.WhatsApp
                         // Failsafe post-processing 1: Clean any stray punctuation / filler headers cleanly without chopping words
                         rawResponseText = rawResponseText.TrimStart('!', '،', ',', '.', ':', '-', ' ', '\n', '\r');
 
+                        // Pass 1: Strip greeting/filler words at start (أبشر، تمام، حياك الله، أهلاً بك، يسعدنا...)
                         rawResponseText = System.Text.RegularExpressions.Regex.Replace(
                             rawResponseText, 
-                            @"^(أبشر\s*(طال\s*عمرك)?|سم\s*(طال\s*عمرك)?)[،\.!؟\n\s]+", 
+                            @"^(أبشر\s*(طال\s*عمرك)?|سم\s*(طال\s*عمرك)?|تمام|حياك\s*الله|أهلاً?\s*بك|اهلاً?\s*بك|يسعدنا)[،\.!؟\n\s]+", 
                             "", 
                             System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+
+                        // Pass 2: HARD Direct Question Extractor — if there is any preamble before the question, extract ONLY the question
+                        if (rawResponseText.Contains("؟") || rawResponseText.Contains("?"))
+                        {
+                            var qMatch = System.Text.RegularExpressions.Regex.Match(
+                                rawResponseText,
+                                @"(من\s+أي\s+مطار|كم\s+عدد|تاريخ\s+السفر|متى\s+تبون|متى\s+موعد|هل\s+تفضلون|هل\s+تم|في\s+أي\s+مدينة|ما\s+هي\s+فئة|ما\s+هو\s+تاريخ)[^؟\?]*[؟\?]",
+                                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                            if (qMatch.Success)
+                            {
+                                rawResponseText = qMatch.Value.Trim();
+                            }
+                        }
+
+                        // Pass 3: Strip any remaining recap preamble sentences
+                        rawResponseText = System.Text.RegularExpressions.Regex.Replace(
+                            rawResponseText, 
+                            @"^(لتجهيز|لتصميم|بناءً?\s*على|بما\s+أن[^\s]*)\s+[^؟\?]*[،,\.:]\s*", 
+                            "", 
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+
+                        // Pass 4: HARD Multi-Question Cutter — if AI joined 2+ questions with "، وهل/وما/وكم/ومن/وأي/وكيف/ومتى", keep only the first question
+                        {
+                            var mqMatch = System.Text.RegularExpressions.Regex.Match(
+                                rawResponseText,
+                                @"[،,]\s*و(هل|ما\s|كم\s|من\s|أي\s|كيف\s|متى\s)");
+                            if (mqMatch.Success)
+                            {
+                                rawResponseText = rawResponseText.Substring(0, mqMatch.Index).TrimEnd('،', ',', ' ') + "؟";
+                            }
+                        }
 
                         rawResponseText = rawResponseText.TrimStart('!', '،', ',', '.', ':', '-', ' ', '\n', '\r');
 
@@ -1993,6 +2040,14 @@ namespace Core.Application.Services.WhatsApp
                               allText.Contains("الأحساء") || allText.Contains("المدينة") || allText.Contains("القصيم") || 
                               allText.Contains("من ");
             
+            bool customerUnsureOrSkippedAirport = allText.Contains("ما حددت") || allText.Contains("ماحددت") || 
+                                                  allText.Contains("ما اعرف") || allText.Contains("ماعرف") || 
+                                                  allText.Contains("اي مطار") || allText.Contains("أي مطار") || 
+                                                  allText.Contains("مو محدد") || allText.Contains("غير محدد") || 
+                                                  allText.Contains("عادي") || allText.Contains("ماعندي");
+
+            bool alreadyAskedOnce = conversation.Notes?.Contains("WaitingForFlightDetails") == true;
+            
             bool hasDate = allText.Contains("سبتمبر") || allText.Contains("اكتوبر") || allText.Contains("أكتوبر") || 
                            allText.Contains("نوفمبر") || allText.Contains("ديسمبر") || allText.Contains("يناير") || 
                            allText.Contains("فبراير") || allText.Contains("مارس") || allText.Contains("ابريل") || 
@@ -2001,11 +2056,12 @@ namespace Core.Application.Services.WhatsApp
                            allText.Contains("يوم") || allText.Contains("شهر") || allText.Contains("تاريخ") || 
                            System.Text.RegularExpressions.Regex.IsMatch(allText, @"\d{1,2}[/-]\d{1,2}");
 
-            if (!hasAirport || !hasDate)
+            // If missing details and not already asked once and customer hasn't expressed uncertainty -> ask once
+            if ((!hasAirport && !customerUnsureOrSkippedAirport && !alreadyAskedOnce) && !hasDate)
             {
                 string askFlightText = !string.IsNullOrWhiteSpace(aiResult.Response) && (aiResult.Response.Contains("؟") || aiResult.Response.Contains("مطار"))
                     ? aiResult.Response
-                    : "أبشر! لتجهيز وحجز تذاكر الطيران بأفضل سعر، من أي مطار تفضلون المغادرة وتاريخ السفر وعدد المسافرين؟ ✈️";
+                    : "من أي مطار تفضلون المغادرة وتاريخ السفر التقريبي؟ ✈️";
 
                 conversation.Notes = "[STATE:WaitingForFlightDetails]";
                 _unitOfWork.WhatsAppConversations.Update(conversation);
@@ -2015,7 +2071,7 @@ namespace Core.Application.Services.WhatsApp
 
             var flightMsg = !string.IsNullOrWhiteSpace(aiResult.Response) && !aiResult.Response.Contains("؟")
                 ? aiResult.Response
-                : "تم استلام وتجهيز طلب الطيران الخاص بكم ✅\nجاري تحويلكم لمسؤول التذاكر لمطابقة أفضل أسعار الرحلات... ✈️👨‍✈️";
+                : "تم استلام وتجهيز طلب تذاكر الطيران الخاص بكم ✅\nجاري تحويلكم لمسؤول التذاكر لمطابقة وتزويدكم بأفضل أسعار الرحلات... ✈️👨‍✈️";
             await TriggerAgentHandoff(freshchatConversationId, conversation, flightMsg, "ab160868-80de-427c-9a60-de78ac3c977d");
         }
 
@@ -2032,7 +2088,7 @@ namespace Core.Application.Services.WhatsApp
             {
                 string askHotelText = !string.IsNullOrWhiteSpace(aiResult.Response) && (aiResult.Response.Contains("؟") || aiResult.Response.Contains("فندق"))
                     ? aiResult.Response
-                    : "أبشر! لحجز أفضل الفنادق، في أي مدينة تفضل الإقامة وما هي تواريخ الدخول والخروج وعدد الأشخاص؟ 🏨";
+                    : "في أي مدينة تفضل الإقامة وتواريخ الدخول والخروج؟ 🏨";
 
                 conversation.Notes = "[STATE:WaitingForBookingDetails]";
                 _unitOfWork.WhatsAppConversations.Update(conversation);

@@ -2,97 +2,200 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using Infrastructure.Persistence.Data;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+using Infrastructure.Shared.Services;
+using Core.Application.Services.WhatsApp;
 
-var optionsBuilder = new DbContextOptionsBuilder<AlmulhemDbContext>();
-optionsBuilder.UseSqlServer("Server=db41528.public.databaseasp.net; Database=db41528; User Id=db41528; Password=5f_Zb+A49y@H; Encrypt=True; TrustServerCertificate=True; MultipleActiveResultSets=True;");
+Console.OutputEncoding = System.Text.Encoding.UTF8;
+Console.WriteLine("===============================================================");
+Console.WriteLine("🧪 فحص محلي نهائي ومؤكد للردود الموجهة للواتساب");
+Console.WriteLine("===============================================================\n");
 
-using var db = new AlmulhemDbContext(optionsBuilder.Options);
+var config = new ConfigurationBuilder()
+    .AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        {"AiSettings:OpenRouterApiKey", Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? ""},
+        {"AiSettings:OpenRouterModel", "google/gemini-2.5-flash"}
+    })
+    .Build();
 
-var cutoff = DateTime.UtcNow.AddDays(-7);
-Console.WriteLine($"Querying conversations since {cutoff:yyyy-MM-dd HH:mm:ss} UTC...");
+var httpClient = new HttpClient();
+var aiService = new OpenRouterAiService(httpClient, config);
 
-var conversations = db.WhatsAppConversations
-    .Where(c => c.StartedAt >= cutoff)
-    .OrderByDescending(c => c.StartedAt)
-    .ToList();
-
-Console.WriteLine($"Total conversations found in last 7 days: {conversations.Count}");
-
-var convoIds = conversations.Select(c => c.Id).ToHashSet();
-
-// Fetch all messages for these conversations
-var allMessages = db.WhatsAppMessages
-    .Where(m => convoIds.Contains(m.ConversationId))
-    .OrderBy(m => m.SentAt)
-    .ToList();
-
-Console.WriteLine($"Total messages found: {allMessages.Count}");
-
-var messagesByConvo = allMessages
-    .GroupBy(m => m.ConversationId)
-    .ToDictionary(g => g.Key, g => g.OrderBy(m => m.SentAt).ToList());
-
-var structuredConvos = new List<object>();
-
-foreach (var conv in conversations)
+string CleanResponse(string raw)
 {
-    var msgs = messagesByConvo.TryGetValue(conv.Id, out var mList) ? mList : new List<Core.Domain.Entities.WhatsApp.WhatsAppMessage>();
+    if (string.IsNullOrWhiteSpace(raw)) return "";
     
-    var formattedMsgs = msgs.Select(m => new {
-        Id = m.Id,
-        Sender = m.SenderType.ToString(),
-        Direction = m.Direction.ToString(),
-        Time = m.SentAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-        Content = m.Content
-    }).ToList();
+    // 0. Extract JSON response if raw JSON block
+    raw = raw.Replace("```json", "").Replace("```", "").Trim();
+    int firstBrace = raw.IndexOf('{');
+    int lastBrace = raw.LastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(raw.Substring(firstBrace, lastBrace - firstBrace + 1));
+            if (doc.RootElement.TryGetProperty("response", out var r))
+            {
+                raw = r.GetString() ?? "";
+            }
+        }
+        catch { }
+    }
 
-    structuredConvos.Add(new {
-        Id = conv.Id,
-        FreshchatConversationId = conv.FreshchatConversationId,
-        CustomerPhone = conv.CustomerPhone,
-        CustomerName = conv.CustomerName,
-        Mode = conv.Mode.ToString(),
-        AssignedAgentName = conv.AssignedAgentName,
-        StartedAt = conv.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-        LastMessageAt = conv.LastMessageAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-        Notes = conv.Notes,
-        MessageCount = formattedMsgs.Count,
-        Messages = formattedMsgs
-    });
+    // 1. Initial trim
+    raw = raw.TrimStart('!', '،', ',', '.', ':', '-', ' ', '\n', '\r');
+
+    // 2. Pass 1: Strip greeting/filler words at start (أبشر، تمام، حياك الله، أهلاً بك، يسعدنا...)
+    raw = Regex.Replace(
+        raw, 
+        @"^(أبشر\s*(طال\s*عمرك)?|سم\s*(طال\s*عمرك)?|تمام|حياك\s*الله|أهلاً?\s*بك|اهلاً?\s*بك|يسعدنا)[،\.!؟\n\s]+", 
+        "", 
+        RegexOptions.IgnoreCase).Trim();
+
+    // 3. Pass 2: HARD Direct Question Extractor — if there is any preamble before the question, extract ONLY the question
+    if (raw.Contains("؟") || raw.Contains("?"))
+    {
+        var qMatch = Regex.Match(
+            raw,
+            @"(من\s+أي\s+مطار|كم\s+عدد|تاريخ\s+السفر|متى\s+تبون|متى\s+موعد|هل\s+تفضلون|هل\s+تم|في\s+أي\s+مدينة|ما\s+هي\s+فئة|ما\s+هو\s+تاريخ)[^؟\?]*[؟\?]",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+        if (qMatch.Success)
+        {
+            raw = qMatch.Value.Trim();
+        }
+    }
+
+    // 4. Pass 3: Strip any remaining recap preamble sentences
+    raw = Regex.Replace(
+        raw, 
+        @"^(لتجهيز|لتصميم|بناءً?\s*على|بما\s+أن[^\s]*)\s+[^؟\?]*[،,\.:]\s*", 
+        "", 
+        RegexOptions.IgnoreCase).Trim();
+
+    // 5. Pass 4: HARD Multi-Question Cutter
+    {
+        var mqMatch = Regex.Match(raw, @"[،,]\s*و(هل|ما\s|كم\s|من\s|أي\s|كيف\s|متى\s)");
+        if (mqMatch.Success)
+        {
+            raw = raw.Substring(0, mqMatch.Index).TrimEnd('،', ',', ' ') + "؟";
+        }
+    }
+
+    // 6. Final trim
+    raw = raw.TrimStart('!', '،', ',', '.', ':', '-', ' ', '\n', '\r');
+
+    return raw;
 }
 
-// Ensure output directories exist
-var outputDir = @"C:\Users\7oda\.gemini\antigravity\brain\8639df1b-3ed9-481b-9065-db6b8ab42df0\scratch";
-if (!Directory.Exists(outputDir))
+var scenarios = new[]
 {
-    Directory.CreateDirectory(outputDir);
-}
-
-// Split into 7 chunks
-int numChunks = 7;
-int total = structuredConvos.Count;
-int chunkSize = (int)Math.Ceiling((double)total / numChunks);
-
-for (int i = 0; i < numChunks; i++)
-{
-    var chunk = structuredConvos.Skip(i * chunkSize).Take(chunkSize).ToList();
-    var chunkFilePath = Path.Combine(outputDir, $"chunk_{i + 1}.json");
-    var json = JsonSerializer.Serialize(chunk, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(chunkFilePath, json);
-    Console.WriteLine($"Chunk {i + 1}: {chunk.Count} conversations written to {chunkFilePath}");
-}
-
-// Summary overview file
-var summaryOverview = new {
-    TotalConversations = total,
-    TotalMessages = allMessages.Count,
-    CutoffDateUtc = cutoff.ToString("yyyy-MM-dd HH:mm:ss"),
-    ChunksCount = numChunks,
-    ChunkSizes = Enumerable.Range(0, numChunks).Select(i => structuredConvos.Skip(i * chunkSize).Take(chunkSize).Count()).ToList()
+    new {
+        Title = "سيناريو التأشيرات العام (كم مدة استخراج الفيزا بدون ذكر الدولة)",
+        History = "",
+        Input = "كم مدة استخراج الفيزا"
+    },
+    new {
+        Title = "سيناريو فيزا بريطانيا (مدة استخراج فيزا بريطانيا)",
+        History = "",
+        Input = "كم مدة استخراج فيزا بريطانيا؟"
+    },
+    new {
+        Title = "سيناريو زنجبار (الصورة السابقة)",
+        History = "العميل: مرحبا\nالبوت: مرحباً بك! أنا المساعد الذكي لسفريات الملحم 🌍 لخدمتك بشكل أسرع، يرجى اختيار أحد الأقسام التالية\nالعميل: ممكن تفاصيل اكثر عن رحلة الى زنجبار عدد ٢ السفر في نوفمبر",
+        Input = "ممكن تفاصيل اكثر عن رحلة الى زنجبار عدد ٢ السفر في نوفمبر"
+    }
 };
 
-File.WriteAllText(Path.Combine(outputDir, "summary_overview.json"), JsonSerializer.Serialize(summaryOverview, new JsonSerializerOptions { WriteIndented = true }));
-Console.WriteLine("All 7 chunks successfully generated!");
+foreach (var sc in scenarios)
+{
+    Console.WriteLine($"\n=======================================================");
+    Console.WriteLine($"🔍 اختبار: {sc.Title}");
+    Console.WriteLine($"💬 رسالة العميل: \"{sc.Input}\"");
+
+    var promptBuilder = new System.Text.StringBuilder();
+    promptBuilder.AppendLine("أنت المشرف الذكي (Super AI Agent) لبوت واتساب سفريات الملحم.");
+    promptBuilder.AppendLine($"التاريخ الحالي للنظام: {DateTime.UtcNow:yyyy-MM-dd} (السنة الحالية: {DateTime.UtcNow.Year}). جميع التواريخ التي يذكرها أو يطلبها العميل تخص السنة الحالية {DateTime.UtcNow.Year} أو السنة القادمة.");
+    promptBuilder.AppendLine("مهمتك مراجعة المحادثة كاملة واتخاذ القرار الصحيح. لا تقم أبداً بتأليف باقات أو أسعار من خيالك، نحن لدينا قاعدة بيانات جاهزة.");
+    promptBuilder.AppendLine();
+    promptBuilder.AppendLine("قاعدة المعرفة الخاصة بنا:");
+    promptBuilder.AppendLine(WhatsAppKnowledgeBase.Content);
+    promptBuilder.AppendLine();
+    promptBuilder.AppendLine(@"الخيارات المتاحة للقرار (Action):
+- ""show_packages"": لعرض الباقات السياحية الجاهزة عند استفسار العميل عن وجهة.
+- ""ask_details"": إذا طلب العميل تفاصيل باقة أو تصميم رحلة، واسأله مباشرة عن البيانات الناقصة فقط دون تكرار.
+- ""handoff_sales"": لحجوزات الباقات بعد اكتمال البيانات الأساسية (الوجهة، المدة/التاريخ، عدد الأشخاص، مطار المغادرة) أو بطلب صريح.
+- ""handoff_flights"": لحجوزات تذاكر الطيران المستقلة فقط.
+- ""handoff_transport"": للمواصلات وتوصيل المطارات مع الأخ جعفر (0502447741).
+- ""respond"": للرد المباشر والإجابة عن الاستفسارات.
+
+الأسئلة الـ 5 الأساسية لتجميع طلب العميل (اسأل سؤال واحد فقط في كل رسالة):
+1. 👥 **عدد المسافرين** (كم شخص بالغ وأطفال وأعمارهم؟).
+2. 📅 **تاريخ السفر** (متى تبون تسافرون تقريباً؟).
+3. ✈️ **مطار المغادرة** (من أي مطار تفضلون المغادرة؟). ⚠️ إذا قال العميل ""شامل كل شيء"" أو ""بكج كامل"" أو ""مع الطيران""، فهذا يعني أنه يريد الوكالة تحجز الطيران، فلا تسأله ""هل تم حجز الطيران؟"" أبداً.
+4. 🏨 **فئة الفنادق** (4 نجوم أم 5 نجوم أم شقق فندقية؟).
+5. 💰 **الميزانية** (هل في ميزانية تقديرية؟).
+
+قواعد صارمة:
+0. قاعدة الاستخلاص الفوري ومنع التكرار.
+1. منع الديباجات والمقدمات والتلخيص نهائياً (Zero Preamble & Zero Echoing).
+4. الإيجاز والتركيز (سؤال واحد فقط في الرسالة).
+5. استيعاب الكلمات (شامل كل شيء = الطيران والفنادق والجولات معاً).
+
+الرد بصيغة JSON:
+{
+  ""action"": ""..."",
+  ""response"": ""..."",
+  ""parameters"": {
+     ""destination"": ""..."",
+     ""check_in"": ""YYYY-MM-DD"",
+     ""duration_days"": 5,
+     ""adults"": 2,
+     ""children"": 0,
+     ""cabin_class"": ""Business / Economy / unspecified"",
+     ""max_budget"": 0
+  }
+}");
+
+    var userMsg = $"=== تاريخ المحادثة ===\n{sc.History}\n\nالحالة الحالية للعميل: WaitingForBookingDetails\nالرسالة الحالية من العميل: \"{sc.Input}\"";
+
+    var response = await aiService.GenerateResponseAsync(userMsg, new List<Core.Application.Abstraction.Services.ChatMessage>(), promptBuilder.ToString());
+    var rawText = response.Text?.Trim() ?? "";
+    string finalClean = CleanResponse(rawText);
+
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine($"[الرد الخام من الـ AI]:\n{rawText}");
+    
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine($"\n[الرد الفعلي الذي يرسله النظام للمستخدم في واتساب]:\n👉 \"{finalClean}\"");
+    Console.ResetColor();
+
+    // Verification Checks
+    bool hasPreamble = finalClean.StartsWith("أبشر") || finalClean.StartsWith("تمام") || finalClean.StartsWith("زنجبار") || finalClean.StartsWith("لتجهيز") || finalClean.StartsWith("بما أن");
+    bool hasMultipleQuestions = finalClean.Count(c => c == '؟' || c == '?') > 1;
+
+    if (!hasPreamble && !hasMultipleQuestions && !string.IsNullOrWhiteSpace(finalClean))
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("✅ فحص الجودة: نجاح تام (بدون ديباجة، سؤال واحد فقط، بدون ثرثرة).");
+        Console.ResetColor();
+    }
+    else
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"❌ تنبيه: hasPreamble={hasPreamble}, hasMultipleQuestions={hasMultipleQuestions}");
+        Console.ResetColor();
+    }
+}
+
+Console.WriteLine("\n===============================================================");
+Console.WriteLine("🏁 انتهى الفحص المحلي المؤكد.");
+Console.WriteLine("===============================================================");
+
+
+

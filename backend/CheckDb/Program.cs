@@ -2,205 +2,50 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
-using System.Net.Http;
-using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Configuration;
-using Infrastructure.Shared.Services;
-using Core.Application.Services.WhatsApp;
+using Microsoft.Data.SqlClient;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
-Console.WriteLine("===============================================================");
-Console.WriteLine("🧪 فحص محلي نهائي ومؤكد للردود الموجهة للواتساب");
-Console.WriteLine("===============================================================\n");
 
-var config = new ConfigurationBuilder()
-    .AddInMemoryCollection(new Dictionary<string, string?>
-    {
-        {"AiSettings:OpenRouterApiKey", Environment.GetEnvironmentVariable("OPENROUTER_API_KEY") ?? ""},
-        {"AiSettings:OpenRouterModel", "google/gemini-2.5-flash"}
-    })
-    .Build();
+var connString = "Server=db41528.public.databaseasp.net; Database=db41528; User Id=db41528; Password=5f_Zb+A49y@H; Encrypt=True; TrustServerCertificate=True;";
 
-var httpClient = new HttpClient();
-var aiService = new OpenRouterAiService(httpClient, config);
-
-string CleanResponse(string raw)
+var convIds = new[]
 {
-    if (string.IsNullOrWhiteSpace(raw)) return "";
-    
-    // 0. Extract JSON response if raw JSON block
-    raw = raw.Replace("```json", "").Replace("```", "").Trim();
-    int firstBrace = raw.IndexOf('{');
-    int lastBrace = raw.LastIndexOf('}');
-    if (firstBrace >= 0 && lastBrace > firstBrace)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(raw.Substring(firstBrace, lastBrace - firstBrace + 1));
-            if (doc.RootElement.TryGetProperty("response", out var r))
-            {
-                raw = r.GetString() ?? "";
-            }
-        }
-        catch { }
-    }
-
-    // 1. Initial trim
-    raw = raw.TrimStart('!', '،', ',', '.', ':', '-', ' ', '\n', '\r');
-
-    // 2. Pass 1: Strip greeting/filler words at start (أبشر، تمام، حياك الله، أهلاً بك، يسعدنا...)
-    raw = Regex.Replace(
-        raw, 
-        @"^(أبشر\s*(طال\s*عمرك)?|سم\s*(طال\s*عمرك)?|تمام|حياك\s*الله|أهلاً?\s*بك|اهلاً?\s*بك|يسعدنا)[،\.!؟\n\s]+", 
-        "", 
-        RegexOptions.IgnoreCase).Trim();
-
-    // 3. Pass 2: HARD Direct Question Extractor — if there is any preamble before the question, extract ONLY the question
-    if (raw.Contains("؟") || raw.Contains("?"))
-    {
-        var qMatch = Regex.Match(
-            raw,
-            @"(من\s+أي\s+مطار|كم\s+عدد|تاريخ\s+السفر|متى\s+تبون|متى\s+موعد|هل\s+تفضلون|هل\s+تم|في\s+أي\s+مدينة|ما\s+هي\s+فئة|ما\s+هو\s+تاريخ)[^؟\?]*[؟\?]",
-            RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-        if (qMatch.Success)
-        {
-            raw = qMatch.Value.Trim();
-        }
-    }
-
-    // 4. Pass 3: Strip any remaining recap preamble sentences
-    raw = Regex.Replace(
-        raw, 
-        @"^(لتجهيز|لتصميم|بناءً?\s*على|بما\s+أن[^\s]*)\s+[^؟\?]*[،,\.:]\s*", 
-        "", 
-        RegexOptions.IgnoreCase).Trim();
-
-    // 5. Pass 4: HARD Multi-Question Cutter
-    {
-        var mqMatch = Regex.Match(raw, @"[،,]\s*و(هل|ما\s|كم\s|من\s|أي\s|كيف\s|متى\s)");
-        if (mqMatch.Success)
-        {
-            raw = raw.Substring(0, mqMatch.Index).TrimEnd('،', ',', ' ') + "؟";
-        }
-    }
-
-    // 6. Final trim
-    raw = raw.TrimStart('!', '،', ',', '.', ':', '-', ' ', '\n', '\r');
-
-    return raw;
-}
-
-var scenarios = new[]
-{
-    new {
-        Title = "سيناريو التأشيرة المستقلة (إرسال رقم مسؤولة التأشيرات بدون إسناد لطابور)",
-        History = "العميل: السلام عليكم، أبي استخرج تأشيرة شنغن مستقلة",
-        Input = "أبي استخرج تأشيرة شنغن مستقلة"
-    },
-    new {
-        Title = "سيناريو مواصلات المطار ونقل الخادمات (إرسال رقم الأخ جعفر بدون إسناد لطابور)",
-        History = "العميل: هل توصلون خادمات لمطار الدمام؟",
-        Input = "هل توصلون خادمات لمطار الدمام؟"
-    },
-    new {
-        Title = "سيناريو حجز بكج سياحي كامل (تحويل لكيو المبيعات Sales Q)",
-        History = "العميل: نبي بكج لماليزيا 12 يوم لشخصين وطفلين من مطار الرياض في 15 نوفمبر فنادق 5 نجوم مع الطيران",
-        Input = "نبي بكج لماليزيا 12 يوم لشخصين وطفلين من مطار الرياض في 15 نوفمبر فنادق 5 نجوم مع الطيران"
-    },
-    new {
-        Title = "سيناريو شكوى أو دعم فني (تحويل لكيو الدعم الفني Customer Support Q)",
-        History = "العميل: عندي شكوى بخصوص تعامل غير لائق",
-        Input = "عندي شكوى بخصوص تعامل غير لائق"
-    }
+    "239a6af6-7e8b-49bb-b956-f5e5edc2d63b",
+    "3b87722a-1992-41ba-853b-9517ff3580d0",
+    "dd05c9f4-a6af-479a-bd80-de8c2a32dc4c",
+    "e202560b-088e-43ac-8ffc-f04e21239ea5",
+    "ac79cc8e-7ee6-45ec-8724-cbfd5face776",
+    "09ac14ec-fd45-41aa-9c80-6c1a7efe388a",
+    "94e9ed7f-125d-439c-8d3b-1caf4dc338cc",
+    "7510a13d-e35e-451a-86b4-bf484ff2c1e4",
+    "c66c014a-5f22-47e8-a785-0434eb67d7e4",
+    "bc0564a3-755d-413b-ab06-bd8523d6e478"
 };
 
-foreach (var sc in scenarios)
+var idList = string.Join("','", convIds);
+var query = $"SELECT Id, CustomerPhone, CustomerName, StartedAt, FreshchatConversationId FROM WhatsAppConversations WHERE Id IN ('{idList}')";
+
+using (var conn = new SqlConnection(connString))
 {
-    Console.WriteLine($"\n=======================================================");
-    Console.WriteLine($"🔍 اختبار: {sc.Title}");
-    Console.WriteLine($"💬 رسالة العميل: \"{sc.Input}\"");
-
-    var promptBuilder = new System.Text.StringBuilder();
-    promptBuilder.AppendLine("أنت المشرف الذكي (Super AI Agent) لبوت واتساب سفريات الملحم.");
-    promptBuilder.AppendLine($"التاريخ الحالي للنظام: {DateTime.UtcNow:yyyy-MM-dd} (السنة الحالية: {DateTime.UtcNow.Year}). جميع التواريخ التي يذكرها أو يطلبها العميل تخص السنة الحالية {DateTime.UtcNow.Year} أو السنة القادمة.");
-    promptBuilder.AppendLine("مهمتك مراجعة المحادثة كاملة واتخاذ القرار الصحيح. لا تقم أبداً بتأليف باقات أو أسعار من خيالك، نحن لدينا قاعدة بيانات جاهزة.");
-    promptBuilder.AppendLine();
-    promptBuilder.AppendLine("قاعدة المعرفة الخاصة بنا:");
-    promptBuilder.AppendLine(WhatsAppKnowledgeBase.Content);
-    promptBuilder.AppendLine();
-    promptBuilder.AppendLine(@"الخيارات المتاحة للقرار (Action):
-- ""show_packages"": لعرض الباقات السياحية الجاهزة عند استفسار العميل عن وجهة.
-- ""ask_details"": إذا طلب العميل تفاصيل باقة أو تصميم رحلة، واسأله مباشرة عن البيانات الناقصة فقط دون تكرار.
-- ""handoff_sales"": لحجوزات الباقات بعد اكتمال البيانات الأساسية (الوجهة، المدة/التاريخ، عدد الأشخاص، مطار المغادرة) أو بطلب صريح.
-- ""handoff_flights"": لحجوزات تذاكر الطيران المستقلة فقط.
-- ""handoff_transport"": للمواصلات وتوصيل المطارات مع الأخ جعفر (0502447741).
-- ""respond"": للرد المباشر والإجابة عن الاستفسارات.
-
-الأسئلة الـ 5 الأساسية لتجميع طلب العميل (اسأل سؤال واحد فقط في كل رسالة):
-1. 👥 **عدد المسافرين** (كم شخص بالغ وأطفال وأعمارهم؟).
-2. 📅 **تاريخ السفر** (متى تبون تسافرون تقريباً؟).
-3. ✈️ **مطار المغادرة** (من أي مطار تفضلون المغادرة؟). ⚠️ إذا قال العميل ""شامل كل شيء"" أو ""بكج كامل"" أو ""مع الطيران""، فهذا يعني أنه يريد الوكالة تحجز الطيران، فلا تسأله ""هل تم حجز الطيران؟"" أبداً.
-4. 🏨 **فئة الفنادق** (4 نجوم أم 5 نجوم أم شقق فندقية؟).
-5. 💰 **الميزانية** (هل في ميزانية تقديرية؟).
-
-قواعد صارمة:
-0. قاعدة الاستخلاص الفوري ومنع التكرار.
-1. منع الديباجات والمقدمات والتلخيص نهائياً (Zero Preamble & Zero Echoing).
-4. الإيجاز والتركيز (سؤال واحد فقط في الرسالة).
-5. استيعاب الكلمات (شامل كل شيء = الطيران والفنادق والجولات معاً).
-
-الرد بصيغة JSON:
-{
-  ""action"": ""..."",
-  ""response"": ""..."",
-  ""parameters"": {
-     ""destination"": ""..."",
-     ""check_in"": ""YYYY-MM-DD"",
-     ""duration_days"": 5,
-     ""adults"": 2,
-     ""children"": 0,
-     ""cabin_class"": ""Business / Economy / unspecified"",
-     ""max_budget"": 0
-  }
-}");
-
-    var userMsg = $"=== تاريخ المحادثة ===\n{sc.History}\n\nالحالة الحالية للعميل: WaitingForBookingDetails\nالرسالة الحالية من العميل: \"{sc.Input}\"";
-
-    var response = await aiService.GenerateResponseAsync(userMsg, new List<Core.Application.Abstraction.Services.ChatMessage>(), promptBuilder.ToString());
-    var rawText = response.Text?.Trim() ?? "";
-    string finalClean = CleanResponse(rawText);
-
-    Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.WriteLine($"[الرد الخام من الـ AI]:\n{rawText}");
+    conn.Open();
+    using var cmd = new SqlCommand(query, conn);
+    using var reader = cmd.ExecuteReader();
     
-    Console.ForegroundColor = ConsoleColor.Green;
-    Console.WriteLine($"\n[الرد الفعلي الذي يرسله النظام للمستخدم في واتساب]:\n👉 \"{finalClean}\"");
-    Console.ResetColor();
-
-    // Verification Checks
-    bool hasPreamble = finalClean.StartsWith("أبشر") || finalClean.StartsWith("تمام") || finalClean.StartsWith("زنجبار") || finalClean.StartsWith("لتجهيز") || finalClean.StartsWith("بما أن");
-    bool hasMultipleQuestions = finalClean.Count(c => c == '؟' || c == '?') > 1;
-
-    if (!hasPreamble && !hasMultipleQuestions && !string.IsNullOrWhiteSpace(finalClean))
+    while (reader.Read())
     {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine("✅ فحص الجودة: نجاح تام (بدون ديباجة، سؤال واحد فقط، بدون ثرثرة).");
-        Console.ResetColor();
-    }
-    else
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"❌ تنبيه: hasPreamble={hasPreamble}, hasMultipleQuestions={hasMultipleQuestions}");
-        Console.ResetColor();
+        var id = reader["Id"].ToString();
+        var phone = reader["CustomerPhone"]?.ToString();
+        var name = reader["CustomerName"]?.ToString();
+        var startedAt = reader["StartedAt"]?.ToString();
+        var freshchatId = reader["FreshchatConversationId"]?.ToString();
+        
+        Console.WriteLine($"ConvId: {id} | Phone: {phone} | Name: {name} | StartedAt: {startedAt} | Freshchat: {freshchatId}");
     }
 }
 
-Console.WriteLine("\n===============================================================");
-Console.WriteLine("🏁 انتهى الفحص المحلي المؤكد.");
-Console.WriteLine("===============================================================");
+
+
+
 
 
 

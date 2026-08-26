@@ -196,7 +196,7 @@ namespace Core.Application.Services.WhatsApp
                             else
                             {
                                 currentState = "DestinationPackages";
-                                conversation.Notes = $"[STATE:{currentState}]";
+                                conversation.Notes = $"[STATE:{currentState}][DEST:{dest}]";
                                 _unitOfWork.WhatsAppConversations.Update(conversation);
 
                                 var finalPackageMsg = responseText;
@@ -460,7 +460,7 @@ namespace Core.Application.Services.WhatsApp
                             else
                             {
                                 currentState = "DestinationPackages";
-                                conversation.Notes = $"[STATE:{currentState}]";
+                                conversation.Notes = $"[STATE:{currentState}][DEST:{dest}]";
                                 _unitOfWork.WhatsAppConversations.Update(conversation);
                                 await SendAndSaveResponseAsync(conversation, responseText);
                                 return;
@@ -539,7 +539,10 @@ namespace Core.Application.Services.WhatsApp
                             {
                                 currentState = "WaitingForBookingDetails";
                             }
-                            conversation.Notes = $"[STATE:{currentState}]";
+                            var existingDestMatch = System.Text.RegularExpressions.Regex.Match(conversation.Notes ?? "", @"\[DEST:([^\]]+)\]");
+                            var resolvedDest = !string.IsNullOrEmpty(aiResult.Destination) ? aiResult.Destination : (existingDestMatch.Success ? existingDestMatch.Groups[1].Value : "");
+                            var destSuffix = !string.IsNullOrEmpty(resolvedDest) ? $"[DEST:{resolvedDest}]" : "";
+                            conversation.Notes = $"[STATE:{currentState}]{destSuffix}";
                             _unitOfWork.WhatsAppConversations.Update(conversation);
                             await SendAndSaveResponseAsync(conversation, aiResult.Response);
                             return;
@@ -861,7 +864,11 @@ namespace Core.Application.Services.WhatsApp
                                 }
                                 else if (destIndex == activeDests.Count + 1)
                                 {
-                                    currentState = "WaitingForBookingDetails"; conversation.Notes = $"[STATE:{currentState}]"; _unitOfWork.WhatsAppConversations.Update(conversation); await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm()); return;
+                                    currentState = "WaitingForBookingDetails";
+                                    conversation.Notes = $"[STATE:{currentState}]";
+                                    _unitOfWork.WhatsAppConversations.Update(conversation);
+                                    await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
+                                    return;
                                 }
 
                                 else
@@ -947,7 +954,7 @@ namespace Core.Application.Services.WhatsApp
                                 currentState = "WaitingForBookingDetails";
                                 conversation.Notes = $"[STATE:{currentState}]{destInfo}";
                                 _unitOfWork.WhatsAppConversations.Update(conversation);
-                                await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+                                await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
                                 return;
                             }
                             break;
@@ -962,7 +969,7 @@ namespace Core.Application.Services.WhatsApp
                                 currentState = "WaitingForBookingDetails";
                                 conversation.Notes = $"[STATE:{currentState}]{destInfo}";
                                 _unitOfWork.WhatsAppConversations.Update(conversation);
-                                await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+                                await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
                                 return;
                             }
                             break;
@@ -977,7 +984,7 @@ namespace Core.Application.Services.WhatsApp
                                 currentState = "WaitingForBookingDetails";
                                 conversation.Notes = $"[STATE:{currentState}]{destInfo}";
                                 _unitOfWork.WhatsAppConversations.Update(conversation);
-                                await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+                                await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
                                 return;
                             }
                             break;
@@ -992,7 +999,7 @@ namespace Core.Application.Services.WhatsApp
                                 currentState = "WaitingForBookingDetails";
                                 conversation.Notes = $"[STATE:{currentState}]{destInfo}";
                                 _unitOfWork.WhatsAppConversations.Update(conversation);
-                                await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+                                await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
                                 return;
                             }
                             break;
@@ -1037,7 +1044,10 @@ namespace Core.Application.Services.WhatsApp
                             }
                             else if (input == "2") // Hotels and Flights
                             {
-                                currentState = "WaitingForBookingDetails"; conversation.Notes = $"[STATE:{currentState}]"; _unitOfWork.WhatsAppConversations.Update(conversation); await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm()); return;
+                                currentState = "WaitingForBookingDetails";
+                                conversation.Notes = $"[STATE:{currentState}]";
+                                _unitOfWork.WhatsAppConversations.Update(conversation);
+                                await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
                                 return;
                             }
                             else if (input == "3") // Licenses
@@ -1106,7 +1116,7 @@ namespace Core.Application.Services.WhatsApp
                     currentState = "WaitingForBookingDetails";
                     conversation.Notes = $"[STATE:{currentState}]";
                     _unitOfWork.WhatsAppConversations.Update(conversation);
-                    await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+                    await HandleSmartBookingFormAsync(freshchatConversationId, conversation, rawInput);
                     return;
                 }
 
@@ -1257,6 +1267,57 @@ namespace Core.Application.Services.WhatsApp
         private string GetBookingPreHandoffForm()
         {
             return "مرحبًا بك عميلنا العزيز، معك فريق سفريات الملحم.\n\nلطفًا زوّدنا بالمعلومات التالية لتجهيز أفضل عرض لك:\n- اسم الدولة او الوجهه:\n- عدد الأشخاص:\n- اعمار الاطفال ان وجد:\n- تواريخ الرحلة: (الوصول والمغادرة)\n- أي متطلبات خاصة او تفاصيل حاب نعرفها؟";
+        }
+
+        /// <summary>
+        /// Smart booking form: checks if customer already provided travel details in conversation history.
+        /// If yes → routes to AI Supervisor to ask only missing info.
+        /// If no → sends the original hardcoded template.
+        /// </summary>
+        private async Task HandleSmartBookingFormAsync(string freshchatConversationId, WhatsAppConversation conversation, string rawInput)
+        {
+            // Check if customer already provided details in recent messages
+            var customerMessages = (await _unitOfWork.WhatsAppMessages
+                .FindAllAsync(m => m.ConversationId == conversation.Id && m.SenderType == MessageSender.Customer))
+                .OrderByDescending(m => m.SentAt)
+                .Take(10)
+                .ToList();
+
+            var allCustomerText = string.Join(" ", customerMessages.Select(m => m.Content ?? "")).ToLower();
+
+            // Destination keywords
+            var destKeywords = new[] { "تركيا", "اسطنبول", "ماليزيا", "تايلند", "تايلاند", "اندونيسيا", "إندونيسيا", "بالي", "بونشاك", "جورجيا", "اذربيجان", "روسيا", "موسكو", "البوسنة", "البوسنه", "فيتنام", "النمسا", "فيينا", "المانيا", "لندن", "بريطانيا", "فرنسا", "باريس", "اسبانيا", "التشيك", "براغ", "المالديف", "موريشيوس", "دبي", "مصر", "سويسرا", "ايطاليا", "اليونان", "كروز", "بوكيت", "كوالالمبور", "باكو", "تبليسي", "باتومي", "طرابزون", "انطاليا" };
+            var hasDestination = destKeywords.Any(kw => allCustomerText.Contains(kw));
+
+            // People count keywords  
+            var hasPeople = System.Text.RegularExpressions.Regex.IsMatch(allCustomerText, @"(شخص|أشخاص|اشخاص|بالغ|كبار|زوجين|لحالي|وطفل|أطفال|اطفال|\d+\s*(شخص|بالغ|كبار))");
+
+            // Date keywords
+            var hasDate = System.Text.RegularExpressions.Regex.IsMatch(allCustomerText, @"(يناير|فبراير|مارس|ابريل|مايو|يونيو|يوليو|اغسطس|سبتمبر|اكتوبر|نوفمبر|ديسمبر|الشهر|شهر\s*\d|/\d{1,2}/|\d{1,2}-\d{1,2}|اليوم الوطني|العيد|الصيف|رمضان)");
+
+            bool customerProvidedDetails = hasDestination || (hasPeople && hasDate);
+
+            if (customerProvidedDetails)
+            {
+                // Route to AI Supervisor — it reads full conversation history and asks only missing questions
+                Console.WriteLine($"🧠 Smart Form: Customer already provided details (dest={hasDestination}, people={hasPeople}, date={hasDate}). Routing to AI.");
+                var aiResult = await ProcessWithAISupervisorAsync(rawInput, "WaitingForBookingDetails", conversation);
+                
+                if (!string.IsNullOrWhiteSpace(aiResult.Response))
+                {
+                    await SendAndSaveResponseAsync(conversation, aiResult.Response);
+                }
+                else
+                {
+                    // AI returned empty — fallback to template
+                    await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+                }
+            }
+            else
+            {
+                // No details found — send the original template
+                await SendAndSaveResponseAsync(conversation, GetBookingPreHandoffForm());
+            }
         }
 
         private async Task TriggerAgentHandoff(string conversationId, WhatsAppConversation conversation, string? customMessage = null, string? targetGroupId = null)
